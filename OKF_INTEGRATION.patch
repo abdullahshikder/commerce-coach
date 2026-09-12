@@ -1,0 +1,374 @@
+--- a/commerce-coach/server/coach/okf.ts
++++ b/commerce-coach/server/coach/okf.ts
+@@ -0,0 +1,37 @@
++import {parseDocument} from 'yaml';
++import {posix} from 'node:path';
++export type OKFMetadata=Record<string,unknown>;
++export function safeConceptPath(path:unknown):string {
++ if(typeof path!=='string'||!path||path.length>500||path.startsWith('/')||path.includes('\\')||/[\x00-\x1f]/.test(path)||path.split('/').some(part=>!part||part==='.'||part==='..'))throw new Error('Bundle paths must stay inside the selected folder.');
++ return path;
++}
++export function parseOKF(path:string,content:string){
++ safeConceptPath(path);
++ const text=content.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
++ if(Buffer.byteLength(text)>65536||text.includes('\0'))throw new Error(`${path}: use UTF-8 Markdown up to 64 KB.`);
++ const reserved=['index.md','log.md'].includes(posix.basename(path));
++ const match=/^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text);
++ if(reserved)return {reserved:true,path,body:text,metadata:{} as OKFMetadata};
++ if(!match)throw new Error(`${path}: OKF concepts require YAML frontmatter with a type.`);
++ const document=parseDocument(match[1],{schema:'core',uniqueKeys:true});
++ if(document.errors.length)throw new Error(`${path}: invalid YAML frontmatter.`);
++ // Disable alias expansion: uploaded metadata must remain bounded and JSON-safe.
++ let metadata:OKFMetadata;
++ try{metadata=document.toJS({maxAliasCount:0});}catch{throw new Error(`${path}: YAML aliases are not supported.`);}
++ if(!metadata||Array.isArray(metadata)||typeof metadata!=='object'||typeof metadata.type!=='string'||!metadata.type.trim())throw new Error(`${path}: type must be a non-empty string.`);
++ const serialized=JSON.stringify(metadata);if(serialized.length>24000)throw new Error(`${path}: metadata is too large.`);
++ for(const field of ['title','description','resource','status','stale_after'])if(metadata[field]!==undefined&&typeof metadata[field]!=='string')throw new Error(`${path}: ${field} must be text.`);
++ if(metadata.status!==undefined&&!['draft','stable','deprecated'].includes(String(metadata.status)))throw new Error(`${path}: invalid lifecycle status.`);
++ if(metadata.stale_after!==undefined&&!Number.isFinite(Date.parse(String(metadata.stale_after))))throw new Error(`${path}: stale_after must be an ISO timestamp.`);
++ if(metadata.tags!==undefined&&(!Array.isArray(metadata.tags)||metadata.tags.some(tag=>typeof tag!=='string')))throw new Error(`${path}: tags must be a list of strings.`);
++ if(metadata.sources!==undefined&&(!Array.isArray(metadata.sources)||metadata.sources.some(source=>!source||typeof source!=='object'||typeof source.resource!=='string')))throw new Error(`${path}: each source needs a resource.`);
++ if(metadata.verified!==undefined){const entries=Array.isArray(metadata.verified)?metadata.verified:[metadata.verified];if(entries.some(entry=>!entry||typeof entry!=='object'||typeof entry.by!=='string'||typeof entry.at!=='string'))throw new Error(`${path}: verification entries need by and at.`);}
++ return {reserved:false,path,body:text.slice(match[0].length).trim(),metadata};
++}
++export function okfRetrievable(metadata:OKFMetadata,now=Date.now()){
++ return !['draft','deprecated'].includes(String(metadata.status))&&!(typeof metadata.stale_after==='string'&&Date.parse(metadata.stale_after)<=now);
++}
++export function okfTrust(metadata:OKFMetadata){
++ const verified=Array.isArray(metadata.verified)?metadata.verified:metadata.verified?[metadata.verified]:[];
++ return verified.some((entry:any)=>typeof entry?.by==='string'&&entry.by.startsWith('human:'))?'human-reviewed':verified.length?'machine-confirmed':'unverified';
++}
+--- a/commerce-coach/server/coach/importOKF.ts
++++ b/commerce-coach/server/coach/importOKF.ts
+@@ -0,0 +1,27 @@
++import {randomUUID} from 'node:crypto';
++import {withSession} from '../db';
++import {digest} from '../auth/password';
++import {parseOKF} from './okf';
++export async function importOKF(sessionHash:string,bundle:unknown,files:unknown){
++ if(typeof bundle!=='string'||! /^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,79}$/.test(bundle))throw new Error('Use a bundle name of 1–80 letters, numbers, spaces, dots, underscores or hyphens.');
++ if(!Array.isArray(files)||!files.length||files.length>52)throw new Error('Choose up to 50 concepts plus index.md and log.md.');
++ const seen=new Set<string>();
++ const parsed=files.map(file=>{
++  if(!file||typeof file.path!=='string'||!file.path.endsWith('.md')||typeof file.content!=='string')throw new Error('OKF bundles contain UTF-8 Markdown files.');
++  if(seen.has(file.path))throw new Error(`Duplicate path: ${file.path}`);seen.add(file.path);
++  return {...parseOKF(file.path,file.content),content:file.content};
++ });
++ const concepts=parsed.filter(file=>!file.reserved);if(!concepts.length||concepts.length>50)throw new Error('Choose between 1 and 50 concept documents. Index and log files are not concepts.');
++ // Validate the complete batch before inserting, then commit all concepts atomically.
++ return withSession(sessionHash,async client=>{
++  const actor=(await client.query('SELECT * FROM public.coach_actor()')).rows[0];
++  if(!actor||actor.role!=='admin'||actor.must_change_password)throw new Error('Administrator access is required.');
++  const ids:string[]=[],skipped:string[]=[];
++  for(const file of concepts){
++   const title=typeof file.metadata.title==='string'?file.metadata.title:file.path;
++   const result=await client.query(`INSERT INTO public.coach_documents(id,organization_id,created_by,name,content,content_hash,okf_metadata,concept_path,bundle_name) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING id`,[randomUUID(),actor.organization_id,actor.id,title.slice(0,150)||file.path.slice(0,150),file.content,digest(file.content.trim()),JSON.stringify(file.metadata),file.path,bundle.trim()]);
++   if(result.rows[0])ids.push(result.rows[0].id);else skipped.push(file.path);
++  }
++  return {ids,skipped,reserved:parsed.filter(file=>file.reserved).map(file=>file.path)};
++ });
++}
+--- a/commerce-coach/server/coach/okf.test.ts
++++ b/commerce-coach/server/coach/okf.test.ts
+@@ -0,0 +1,13 @@
++import {test} from 'node:test';
++import assert from 'node:assert/strict';
++import {parseOKF,okfRetrievable,okfTrust,safeConceptPath} from './okf';
++test('OKF preserves extension metadata, sources and Unicode bodies',()=>{
++ const value=parseOKF('policies/returns.md','---\ntype: Playbook\ntitle: Returns\ntags: [policy]\nsources:\n  - resource: /references/rules.md\ncustom:\n  owner: operations\nverified: {by: "human:reviewer", at: "2026-01-01T00:00:00Z"}\n---\nবাংলা return instructions.');
++ assert.equal(value.metadata.type,'Playbook');assert.equal((value.metadata.custom as any).owner,'operations');assert.equal(okfTrust(value.metadata),'human-reviewed');assert.equal(value.body,'বাংলা return instructions.');
++});
++test('unknown types are accepted and minimal concepts remain unverified',()=>{const value=parseOKF('a.md','---\ntype: CustomThing\n---\n');assert.equal(okfTrust(value.metadata),'unverified');assert(okfRetrievable(value.metadata));});
++test('indexes and logs are reserved and lifecycle exclusions are deterministic',()=>{assert(parseOKF('index.md','# Index').reserved);assert(parseOKF('a/log.md','# Log').reserved);assert(!okfRetrievable({status:'draft'}));assert(!okfRetrievable({status:'deprecated'}));assert(!okfRetrievable({stale_after:'2020-01-01T00:00:00Z'}));assert(okfRetrievable({status:'stable'}));});
++test('unsafe paths, duplicate YAML keys, aliases and malformed concepts are rejected',()=>{
++ for(const path of ['../a.md','/a.md','a/../b.md','a\\b.md'])assert.throws(()=>safeConceptPath(path));
++ for(const content of ['plain text','---\ntype: [bad]\n---\nbody','---\ntype: A\ntype: B\n---\nbody','---\ntype: A\nx: &x [one]\ny: *x\n---\nbody'])assert.throws(()=>parseOKF('a.md',content));
++});
+--- a/commerce-coach/server/coach/documents.ts
++++ b/commerce-coach/server/coach/documents.ts
+@@ -1,3 +1,4 @@
++import { parseOKF, okfRetrievable, okfTrust } from './okf';
+ import type { EmbeddingProvider } from '../../src/coach/embeddings';
+ import { withSession } from '../db';
+ import { getCoachEmbeddingConfig } from './config';
+@@ -19,21 +20,25 @@
+ export function cosine(a:number[],b:number[]){if(a.length!==b.length||!a.length)return 0;let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){dot+=a[i]*b[i];aa+=a[i]*a[i];bb+=b[i]*b[i];}return aa&&bb?dot/Math.sqrt(aa*bb):0;}
+ function tokens(text:string){return new Set(text.toLowerCase().match(/[\p{L}\p{N}\p{M}]+/gu)?.filter(word=>word.length>1)??[]);}
+ export async function retrieveDocuments(sessionHash:string,query:string,limit=4,provider:EmbeddingProvider|undefined=documentProvider()){
+-  const rows=await withSession(sessionHash,async client=>(await client.query("SELECT id,name,chunks,model FROM public.coach_documents WHERE status='ready' ORDER BY created_at DESC LIMIT 50")).rows);
++  const rows=await withSession(sessionHash,async client=>(await client.query("SELECT id,name,chunks,model,okf_metadata,concept_path,bundle_name FROM public.coach_documents WHERE status='ready' ORDER BY created_at DESC LIMIT 50")).rows);
+   if(!rows.length)return [];
+   let vector:number[]|undefined;
+   if(provider&&rows.some(row=>row.model===provider.model)){try{vector=(await provider.embed([query],{task:'retrieval-query'}))[0];}catch{/* Keyword search remains available if the provider is unavailable. */}}
+   const terms=tokens(query);
+-  return rows.flatMap(row=>(row.chunks as {text:string;vector?:number[]}[]).map((chunk,index)=>{
++  return rows.filter(row=>okfRetrievable(row.okf_metadata??{})).flatMap(row=>(row.chunks as {text:string;vector?:number[]}[]).map((chunk,index)=>{
+     const words=tokens(chunk.text);const matched=[...terms].filter(term=>words.has(term)).length;
+     const lexical=terms.size?matched/terms.size:0;
+     const semantic=vector&&chunk.vector&&row.model===provider?.model?cosine(vector,chunk.vector):0;
+-    return {document:{id:`upload:${row.id}:${index}`,kind:'knowledge' as const,text:chunk.text,metadata:{source:row.name,uploaded:true}},score:Math.max(lexical,semantic),matched,semantic};
++    return {document:{id:`upload:${row.id}:${index}`,kind:'knowledge' as const,text:chunk.text,metadata:{source:row.name,uploaded:true,conceptPath:row.concept_path??'',bundle:row.bundle_name??'',okf:row.okf_metadata,trust:okfTrust(row.okf_metadata??{})}},score:Math.max(lexical,semantic),matched,semantic};
+   })).filter(result=>(result.matched>0&&result.score>=0.2)||result.semantic>=0.55).sort((a,b)=>b.score-a.score).slice(0,limit);
+ }
+ 
+ export async function processDocument(sessionHash:string,id:string,token:string,content:string,provider:EmbeddingProvider|undefined=documentProvider()){
+-  const texts=chunkDocument(content);
++  const source=await withSession(sessionHash,async c=>(await c.query('SELECT concept_path,okf_metadata FROM public.coach_documents WHERE id=$1',[id])).rows[0]);
++  if(!source)return {saved:false,chunks:0,mode:'keyword'};
++  const parsed=source.concept_path?parseOKF(source.concept_path,content):undefined;
++  const indexText=parsed?`${parsed.metadata.title??source.concept_path}\n${parsed.metadata.description??''}\n${JSON.stringify(parsed.metadata)}\n\n${parsed.body}`:content;
++  const texts=chunkDocument(indexText);
+   const vectors=provider?await provider.embed(texts,{task:'retrieval-document'}):undefined;
+   const chunks=texts.map((text,index)=>({text,...(vectors?{vector:vectors[index]}:{})}));
+   const result=await withSession(sessionHash,c=>c.query(`UPDATE public.coach_documents SET chunks=$3,model=$4,dimensions=$5,status='ready',lease_until=NULL,processing_token=NULL,updated_at=now() WHERE id=$1 AND processing_token=$2 RETURNING id`,[id,token,JSON.stringify(chunks),provider?.model??null,vectors?.[0].length??null]));
+--- a/commerce-coach/server/routes/documents.ts
++++ b/commerce-coach/server/routes/documents.ts
+@@ -1,4 +1,5 @@
+-import { Router } from 'express';
++import express, { Router } from 'express';
++import { importOKF } from '../coach/importOKF';
+ import { randomUUID } from 'node:crypto';
+ import { withSession } from '../db';
+ import { asyncRoute, requireRole } from '../auth/middleware';
+@@ -8,10 +9,19 @@
+ export const documentRoutes=Router();
+ documentRoutes.use(requireRole('admin'));
+ documentRoutes.get('/',asyncRoute(async(req,res)=>{
+- const items=await withSession(req.sessionHash!,async c=>(await c.query('SELECT id,name,status,model,error,jsonb_array_length(chunks) AS chunk_count,created_at,lease_until FROM public.coach_documents ORDER BY created_at DESC')).rows);
++ const items=await withSession(req.sessionHash!,async c=>(await c.query('SELECT id,name,status,model,error,okf_metadata,concept_path,bundle_name,jsonb_array_length(chunks) AS chunk_count,created_at,lease_until FROM public.coach_documents ORDER BY created_at DESC')).rows);
+  res.json({items,embeddingConfigured:Boolean(documentProvider()),maxBytes:65536,maxDocuments:50});
+ }));
+-documentRoutes.post('/',asyncRoute(async(req,res)=>{
++documentRoutes.post('/import',express.json({limit:'4mb'}),asyncRoute(async(req,res)=>{
++ if(!await takeBudget(`okf-import:${req.actor!.organization_id}`,5,60)){res.status(429).json({error:'Too many imports. Try again in a minute.'});return;}
++ try{res.status(201).json(await importOKF(req.sessionHash!,req.body?.bundle,req.body?.files));}
++ catch(error){if((error as any).code)throw error;res.status(400).json({error:(error as Error).message});}
++}));
++documentRoutes.get('/:id/source',asyncRoute(async(req,res)=>{
++ const row=await withSession(req.sessionHash!,async c=>(await c.query('SELECT content,okf_metadata,concept_path,bundle_name FROM public.coach_documents WHERE id=$1',[req.params.id])).rows[0]);
++ res.status(row?200:404).json(row??{error:'Document not found.'});
++}));
++documentRoutes.post('/', asyncRoute(async(req,res)=>{
+  if(!await takeBudget(`document-upload:${req.actor!.organization_id}`,10,60)){res.status(429).json({error:'Too many uploads. Try again in a minute.'});return;}
+  const {name,content}=req.body??{};
+  if(typeof name!=='string'||name.length>150||!name.trim()||! /\.(txt|md|csv|json)$/i.test(name)||typeof content!=='string'){res.status(400).json({error:'Choose a text, Markdown, CSV, or JSON file.'});return;}
+@@ -20,8 +30,12 @@
+  if(!row){res.status(409).json({error:'This document is already uploaded.'});return;}res.status(201).json(row);
+ }));
+ documentRoutes.param('id',(req,res,next)=>{if(!/^[0-9a-f-]{36}$/i.test(req.params.id)){res.status(400).json({error:'Invalid document ID.'});return;}next();});
++let activeProcessors=0;
+ documentRoutes.post('/:id/process',asyncRoute(async(req,res)=>{
+- if(!await takeBudget(`document-process:${req.actor!.organization_id}`,5,60)){res.status(429).json({error:'Too many processing requests. Try again in a minute.'});return;}
++ if(activeProcessors>=3){res.status(429).json({error:'Processors are busy. Retry shortly.'});return;}
++ activeProcessors++;
++ try{
++ if(!await takeBudget(`document-process:${req.actor!.organization_id}`,60,60)){res.status(429).json({error:'Too many processing requests. Try again in a minute.'});return;}
+  const token=randomUUID();
+  const row=await withSession(req.sessionHash!,async c=>(await c.query(`UPDATE public.coach_documents SET status='processing',processing_token=$2,lease_until=now()+interval '2 minutes',error='',updated_at=now() WHERE id=$1 AND (status<>'processing' OR lease_until<now()) RETURNING content`,[req.params.id,token])).rows[0]);
+  if(!row){res.status(409).json({error:'Document is unavailable or already processing. Interrupted jobs can be retried after two minutes.'});return;}
+@@ -33,6 +47,7 @@
+   await withSession(req.sessionHash!,c=>c.query("UPDATE public.coach_documents SET status='failed',error='Processing failed. Check the embedding provider settings and retry.',lease_until=NULL,processing_token=NULL WHERE id=$1 AND processing_token=$2",[req.params.id,token]));
+   res.status(502).json({error:'Processing failed. Check the embedding provider settings and retry.'});
+  }
++ }finally{activeProcessors--;}
+ }));
+ documentRoutes.delete('/:id',asyncRoute(async(req,res)=>{
+  const result=await withSession(req.sessionHash!,c=>c.query('DELETE FROM public.coach_documents WHERE id=$1 RETURNING id',[req.params.id]));
+--- a/commerce-coach/server/app.ts
++++ b/commerce-coach/server/app.ts
+@@ -18,7 +18,8 @@
+ // Explicit proxy addresses only; never trust arbitrary forwarded client IP headers.
+ if(process.env.TRUSTED_PROXIES)app.set('trust proxy',process.env.TRUSTED_PROXIES.split(',').map(value=>value.trim()).filter(Boolean));
+ app.use(securityHeaders);
+-app.use(express.json({ limit: '256kb' }));
++const parseJson=express.json({ limit: '256kb' });
++app.use((req,res,next)=>req.path==='/api/documents/import'?next():parseJson(req,res,next));
+ app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+ app.use('/api', sameOrigin);
+ app.get('/api/health', asyncRoute(async (_req, res) => { await pool.query('SELECT 1'); res.json({ status: 'ok' }); }));
+--- a/commerce-coach/server/migrate.ts
++++ b/commerce-coach/server/migrate.ts
+@@ -11,7 +11,7 @@
+   try {
+     await client.query('BEGIN');
+     await client.query("SELECT pg_advisory_xact_lock(hashtext('commerce-coach-migrate'))");
+-    for (const file of ['001_security.sql', '002_google_sso.sql', '003_conversations.sql', '004_hardening.sql', '005_documents.sql']) {
++    for (const file of ['001_security.sql', '002_google_sso.sql', '003_conversations.sql', '004_hardening.sql', '005_documents.sql', '006_okf.sql']) {
+       await client.query(await readFile(new URL(`./migrations/${file}`, import.meta.url), 'utf8'));
+     }
+     for (const [connection, group] of [[runtime, 'coach_app'], [auth, 'coach_auth']] as const) {
+--- a/commerce-coach/server/migrations/006_okf.sql
++++ b/commerce-coach/server/migrations/006_okf.sql
+@@ -0,0 +1,5 @@
++ALTER TABLE public.coach_documents ADD COLUMN IF NOT EXISTS okf_metadata jsonb NOT NULL DEFAULT '{}';
++ALTER TABLE public.coach_documents ADD COLUMN IF NOT EXISTS concept_path text;
++ALTER TABLE public.coach_documents ADD COLUMN IF NOT EXISTS bundle_name text;
++-- Original source and all extension metadata are retained; only admins can insert.
++CREATE UNIQUE INDEX IF NOT EXISTS documents_bundle_path ON public.coach_documents(organization_id,bundle_name,concept_path) WHERE bundle_name IS NOT NULL;
+--- a/commerce-coach/src/auth/OKFImport.tsx
++++ b/commerce-coach/src/auth/OKFImport.tsx
+@@ -0,0 +1,21 @@
++import {useRef,useState} from 'react';
++import {api} from './client';
++export function OKFImport({disabled,onImported}:{disabled:boolean;onImported:()=>Promise<void>}){
++ const [files,setFiles]=useState<File[]>([]);const [bundle,setBundle]=useState('merchant-knowledge');const [busy,setBusy]=useState(false);const [message,setMessage]=useState('');const [error,setError]=useState('');
++ const fileInput=useRef<HTMLInputElement>(null),folderInput=useRef<HTMLInputElement>(null);
++ return <form className="knowledge-upload" onSubmit={async event=>{event.preventDefault();setBusy(true);setMessage('');setError('');try{
++  if(files.length>52)throw new Error('Choose up to 50 concepts plus index and log files.');
++  const data=[];for(const file of files){if(file.size>65536)throw new Error(`${file.name} exceeds 64 KB.`);const path=file.webkitRelativePath?file.webkitRelativePath.split('/').slice(1).join('/'):file.name;data.push({path,content:new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer())});}
++  const result=await api('/api/documents/import',{bundle,files:data});setMessage(`Imported ${result.ids.length} concepts. ${result.skipped.length} existing or duplicate files skipped. ${result.reserved.length} index/log files excluded. Use Process pending below to make concepts searchable.`);setFiles([]);if(fileInput.current)fileInput.current.value='';if(folderInput.current)folderInput.current.value='';await onImported();
++ }catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>
++  <h2>Import an OKF bundle</h2><p>Open Knowledge Format v0.2 · Markdown concepts with YAML metadata. Folder imports preserve concept paths and links.</p>
++  <label htmlFor="okf-bundle">Bundle name</label><input id="okf-bundle" value={bundle} maxLength={80} required disabled={busy||disabled} onChange={event=>setBundle(event.target.value)}/>
++  <div className="knowledge-document-actions"><button type="button" disabled={busy||disabled} onClick={()=>fileInput.current?.click()}>Choose Markdown files</button><button type="button" disabled={busy||disabled} onClick={()=>folderInput.current?.click()}>Choose folder</button></div>
++  <input ref={fileInput} hidden type="file" multiple accept=".md" aria-label="OKF Markdown files" onChange={event=>{setFiles(Array.from(event.target.files??[]));setError('');}}/>
++  <input ref={folderInput} hidden type="file" {...({webkitdirectory:'',directory:''} as any)} aria-label="OKF bundle folder" onChange={event=>{setFiles(Array.from(event.currentTarget.files as FileList).filter(file=>file.name.endsWith('.md')));setError('');}}/>
++  {files.length>0&&<p>{files.length} Markdown files selected</p>}
++  <p>Only stable, current concepts are used in answers. Import preserves declared provenance and verification; it does not run referenced code or fetch external links.</p>
++  {error&&<p role="alert" className="knowledge-error">{error}</p>}{message&&<p role="status">{message}</p>}
++  <button disabled={busy||disabled||!files.length} type="submit">{busy?'Importing…':'Import bundle'}</button>
++ </form>;
++}
+--- a/commerce-coach/src/auth/KnowledgePanel.tsx
++++ b/commerce-coach/src/auth/KnowledgePanel.tsx
+@@ -1,14 +1,16 @@
+ import { useEffect,useRef,useState } from 'react';
++import { OKFImport } from './OKFImport';
+ import { api } from './client';
+ import { EmptyState } from '../components/EmptyState';
+-type Document={id:string;name:string;status:string;model:string|null;error:string;chunk_count:number;lease_until:string|null};
++type Document={id:string;name:string;status:string;model:string|null;error:string;chunk_count:number;lease_until:string|null;concept_path?:string;bundle_name?:string;okf_metadata?:Record<string,any>};
+ export function KnowledgePanel(){
+  const [items,setItems]=useState<Document[]>([]);const [configured,setConfigured]=useState(false);
+  const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [busy,setBusy]=useState('');const [notice,setNotice]=useState('');
++ const stopBatch=useRef(false);
+  const [file,setFile]=useState<File|null>(null);const input=useRef<HTMLInputElement>(null);
+  const load=async()=>{try{const data=await api('/api/documents');setItems(data.items);setConfigured(data.embeddingConfigured);}catch(e){setError((e as Error).message);}finally{setLoading(false);}};
+  useEffect(()=>{void load();},[]);
+- const process=async(id:string)=>{setBusy(id);setError('');setNotice('');try{await api(`/api/documents/${id}/process`,{});setNotice('Document is ready. Your team can now find it in Coach answers.');}catch(e){setError((e as Error).message);}finally{setBusy('');await load();}};
++ const process=async(id:string)=>{setBusy(id);setError('');setNotice('');try{await api(`/api/documents/${id}/process`,{});setNotice('Processing completed. Stable, current documents are available to Coach.');}catch(e){setError((e as Error).message);}finally{setBusy('');await load();}};
+  return <div className="knowledge-page"><div className="knowledge-content">
+   <div><h1>Knowledge</h1><p>Upload reference documents for your organization’s Coach.</p></div>
+   {error&&<p role="alert" className="knowledge-error">{error}</p>}{notice&&<p role="status" className="knowledge-notice">{notice}</p>}
+@@ -22,10 +24,17 @@
+    <p>{configured?'Processing sends this document to your configured embedding provider to enable semantic search.':'Keyword search is available now. To generate embeddings, configure OPENROUTER_API_KEY on the server, then reprocess your documents.'}</p>
+    <button disabled={!file||Boolean(busy)} type="submit">{busy==='upload'?'Uploading…':busy?'Processing…':'Upload and process'}</button>
+   </form>
++  <OKFImport disabled={Boolean(busy)} onImported={load}/>
++  <div className="knowledge-document-actions"><button disabled={Boolean(busy)||!items.some(doc=>['queued','failed'].includes(doc.status))} onClick={async()=>{
++    const pending=items.filter(doc=>['queued','failed'].includes(doc.status));stopBatch.current=false;setBusy('batch');setError('');let complete=0,failed=0;
++    for(const doc of pending){if(stopBatch.current)break;setNotice(`Processing ${complete+failed+1} of ${pending.length}: ${doc.name}`);try{await api(`/api/documents/${doc.id}/process`,{});complete++;}catch{failed++;}await load();}
++    setBusy('');setNotice(`${complete} processed, ${failed} failed. ${pending.length-complete-failed} remaining.`);
++  }}>Process pending</button>{busy==='batch'&&<button onClick={()=>{stopBatch.current=true;setNotice('Stopping after the current document finishes…');}}>Stop after current</button>}</div>
+   <div className="knowledge-list-heading"><h2>Documents <span>{items.length}/50</span></h2><button disabled={loading||Boolean(busy)} onClick={()=>{setError('');setLoading(true);void load();}}>Refresh</button></div>
+   {loading?<p role="status">Loading documents…</p>:!items.length&&!error?<EmptyState title="Build your team’s knowledge" description="Add product guides, policies, or common questions. Coach will use processed documents alongside the Commerce playbook." action={<button onClick={()=>input.current?.click()}>Choose a document</button>}/>:null}
+   <div className="knowledge-documents">{items.map(doc=><article key={doc.id}>
+    <div><h3>{doc.name}</h3><p>{busy===doc.id?'Processing…':doc.status==='ready'?`${doc.chunk_count} sections · ${doc.model?'Semantic search':'Keyword search'}`:doc.status==='processing'?'Processing — interrupted jobs can be retried after two minutes.':doc.status==='failed'?doc.error:'Uploaded · waiting to process'}</p></div>
++   {doc.concept_path&&<details className="knowledge-metadata"><summary>OKF metadata</summary><p>{doc.bundle_name} / {doc.concept_path}</p><p>Lifecycle: {doc.okf_metadata?.status??'stable'}{doc.okf_metadata?.stale_after?` · stale after ${doc.okf_metadata.stale_after}`:''}</p><p>Verification below is declared by the imported bundle.</p><pre>{JSON.stringify(doc.okf_metadata,null,2)}</pre></details>}
+    <div className="knowledge-document-actions"><button disabled={Boolean(busy)||(doc.status==='processing'&&Boolean(doc.lease_until)&&Date.parse(doc.lease_until!)>Date.now())} onClick={()=>void process(doc.id)}>{doc.status==='ready'?'Reprocess':doc.status==='failed'?'Retry':'Process'}</button><button disabled={Boolean(busy)} onClick={async()=>{if(!window.confirm(`Remove “${doc.name}” from Coach knowledge? Saved answers will remain.`))return;setBusy(doc.id);setError('');try{await api(`/api/documents/${doc.id}`,undefined,'DELETE');await load();}catch(e){setError((e as Error).message);}finally{setBusy('');}}}>Remove</button></div>
+   </article>)}</div>
+  </div></div>;
+--- a/commerce-coach/src/index.css
++++ b/commerce-coach/src/index.css
+@@ -305,3 +305,5 @@
+ .knowledge-document-actions {display:flex;gap:8px;flex-shrink:0}
+ .knowledge-content .knowledge-error {color:var(--accent)}.knowledge-notice {padding:12px;background:var(--surface);border-left:3px solid var(--accent)}
+ @media(max-width:767px){.workspace-header {flex-wrap:wrap;height:auto;min-height:58px;padding-top:10px;padding-bottom:10px}.workspace-nav {order:5;width:100%;height:34px;gap:20px}.appearance-toggle {margin-left:auto}.knowledge-page {padding:24px 16px}.knowledge-documents article {align-items:flex-start;flex-direction:column;gap:12px}}
++
++.knowledge-metadata {max-width:340px;font-size:12px;color:var(--muted)}.knowledge-metadata summary {cursor:pointer;color:var(--text)}.knowledge-metadata pre {max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:12px}.knowledge-upload #okf-bundle {border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text);padding:8px 12px;max-width:360px}
+--- a/commerce-coach/scripts/apply-okf.ts
++++ b/commerce-coach/scripts/apply-okf.ts
+@@ -0,0 +1,6 @@
++import {readFile} from 'node:fs/promises';
++import {config} from 'dotenv';
++import {Pool} from 'pg';
++config({path:'data/admin.env',quiet:true});
++const pool=new Pool({connectionString:process.env.MIGRATION_DATABASE_URL});const client=await pool.connect();
++try{await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtext('commerce-coach-migrate'))");await client.query(await readFile(new URL('../server/migrations/006_okf.sql',import.meta.url),'utf8'));await client.query('COMMIT');console.log('OKF metadata migration applied; no accounts or roles created.');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();await pool.end();}
+--- a/commerce-coach/scripts/verify-okf.ts
++++ b/commerce-coach/scripts/verify-okf.ts
+@@ -0,0 +1,22 @@
++import 'dotenv/config';
++import {config} from 'dotenv';
++import {Pool} from 'pg';
++import {randomUUID} from 'node:crypto';
++import assert from 'node:assert/strict';
++import {withSession,closeDb} from '../server/db';
++import {importOKF} from '../server/coach/importOKF';
++import {processDocument,retrieveDocuments} from '../server/coach/documents';
++config({path:'data/admin.env',quiet:true});process.env.OPENROUTER_API_KEY='';process.env.VITE_OPENROUTER_API_KEY='';
++const owner=new Pool({connectionString:process.env.MIGRATION_DATABASE_URL});const bundle=`verify-${randomUUID()}`,term=randomUUID().replaceAll('-','');
++try{
++ const actor=(await owner.query("SELECT s.token_hash FROM coach_private.sessions s JOIN coach_private.users u ON u.id=s.user_id WHERE s.expires_at>now() AND u.active AND u.role='admin' AND (NOT u.must_change_password OR s.auth_method='google') LIMIT 1")).rows[0];assert(actor,'An existing signed-in admin is required; no sessions are created.');
++ const files=[{path:'index.md',content:'# Bundle'},...['stable','draft','deprecated'].map(status=>({path:`policies/${status}.md`,content:`---\ntype: Playbook\ntitle: ${status}\nstatus: ${status}\ncustom: {owner: commerce}\nsources: [{resource: /references/policy.md}]\n---\n${term} ${status} policy.`}))];
++ await assert.rejects(importOKF(actor.token_hash,bundle,[files[1],{path:'bad.md',content:'bad'}]));
++ assert.equal((await owner.query('SELECT id FROM public.coach_documents WHERE bundle_name=$1',[bundle])).rowCount,0);
++ const result=await importOKF(actor.token_hash,bundle,files);assert.equal(result.ids.length,3);assert.deepEqual(result.reserved,['index.md']);
++ assert.equal((await importOKF(actor.token_hash,bundle,files)).skipped.length,3);
++ for(const id of result.ids){const token=randomUUID();const row=await withSession(actor.token_hash,async c=>(await c.query("UPDATE public.coach_documents SET status='processing',processing_token=$2 WHERE id=$1 RETURNING content,okf_metadata,concept_path",[id,token])).rows[0]);assert.equal(row.okf_metadata.custom.owner,'commerce');await processDocument(actor.token_hash,id,token,row.content);}
++ const matches=await retrieveDocuments(actor.token_hash,term);assert.equal(matches.length,1);assert.equal(matches[0].document.metadata.conceptPath,'policies/stable.md');assert.equal(matches[0].document.metadata.bundle,bundle);
++ await assert.rejects(importOKF('invalid-session',bundle,files));
++ console.log('PASS: atomic validation, bundle paths, preserved metadata, duplicate detection, reserved files, lifecycle exclusion and authenticated import');
++}finally{await owner.query('DELETE FROM public.coach_documents WHERE bundle_name=$1',[bundle]);await owner.end();await closeDb();}
+--- a/commerce-coach/package.json
++++ b/commerce-coach/package.json
+@@ -7,13 +7,13 @@
+     "dev": "concurrently -n \"api,web\" -c \"yellow,cyan\" \"npm run server\" \"npm run client\"",
+     "build": "vite build",
+     "lint": "tsc --noEmit",
+-    "test:coach": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/documents.test.ts",
++    "test:coach": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/documents.test.ts server/coach/okf.test.ts",
+     "coach:eval": "node --import tsx scripts/evaluate-coach-workflows.ts",
+     "embeddings:build": "node --import tsx scripts/build-coach-embeddings.ts",
+     "server": "node --watch --import tsx server/index.ts",
+     "client": "vite --host 127.0.0.1 --port 8010",
+     "start": "node --import tsx server/index.ts",
+-    "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/documents.test.ts",
++    "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/documents.test.ts server/coach/okf.test.ts",
+     "db:init": "node --import tsx scripts/init-db.ts",
+     "db:backup": "node --import tsx scripts/backup-db.ts",
+     "db:import": "node --import tsx scripts/import-feedback.ts",
+@@ -36,7 +36,8 @@
+     "pg": "^8.23.0",
+     "react": "^19.0.1",
+     "react-dom": "^19.0.1",
+-    "vite": "^6.2.3"
++    "vite": "^6.2.3",
++    "yaml": "2.9.0"
+   },
+   "devDependencies": {
+     "@types/better-sqlite3": "^7.6.13",
+--- a/commerce-coach/package-lock.json
++++ b/commerce-coach/package-lock.json
+@@ -21,7 +21,8 @@
+         "pg": "^8.23.0",
+         "react": "^19.0.1",
+         "react-dom": "^19.0.1",
+-        "vite": "^6.2.3"
++        "vite": "^6.2.3",
++        "yaml": "2.9.0"
+       },
+       "devDependencies": {
+         "@types/better-sqlite3": "^7.6.13",
+@@ -5085,6 +5086,21 @@
+       "integrity": "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==",
+       "license": "ISC"
+     },
++    "node_modules/yaml": {
++      "version": "2.9.0",
++      "resolved": "https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz",
++      "integrity": "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==",
++      "license": "ISC",
++      "bin": {
++        "yaml": "bin.mjs"
++      },
++      "engines": {
++        "node": ">= 14.6"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/eemeli"
++      }
++    },
+     "node_modules/yargs": {
+       "version": "18.0.0",
+       "resolved": "https://registry.npmjs.org/yargs/-/yargs-18.0.0.tgz",

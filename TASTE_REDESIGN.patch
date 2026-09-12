@@ -1,0 +1,1616 @@
+--- a/commerce-coach/src/main.tsx
++++ b/commerce-coach/src/main.tsx
+@@ -2,5 +2,8 @@
+ import { createRoot } from 'react-dom/client';
+ import { AuthProvider } from './auth/AuthContext';
+ import { AppShell } from './auth/AppShell';
++import '@fontsource-variable/outfit/wght.css';
++import '@fontsource-variable/noto-sans-bengali/wght.css';
+ import './index.css';
++try{const saved=localStorage.getItem('coach-appearance');if(saved==='light'||saved==='dark')document.documentElement.dataset.appearance=saved;}catch{}
+ createRoot(document.getElementById('root')!).render(<React.StrictMode><AuthProvider><AppShell /></AuthProvider></React.StrictMode>);
+--- a/commerce-coach/src/index.css
++++ b/commerce-coach/src/index.css
+@@ -1,937 +1,278 @@
+ @import "tailwindcss";
+ 
++@theme {
++  --font-sans: 'Outfit Variable', 'Noto Sans Bengali Variable', sans-serif;
++  --font-mono: ui-monospace, monospace;
++  --color-brand: var(--accent);
++  --color-brand-hover: var(--accent-hover);
++  --color-brand-light: var(--accent-soft);
++  --color-brand-border: var(--line);
++}
+ :root {
+-  --brand-color: #e83330;
+-  --brand-color-hover: #c82e2c;
+-  --brand-color-light: #fdecec;
+-  --brand-border-light: #fee2e2;
+-}
++  color-scheme: light;
++  --canvas: #f3f4f6;
++  --surface: #fefefe;
++  --surface-muted: #f6f7f9;
++  --surface-hover: #e9ecf0;
++  --text: #252b35;
++  --muted: #606a79;
++  --subtle: #737d8a;
++  --line: #e1e5ea;
++  --accent: #cb352f;
++  --accent-hover: #b92c27;
++  --accent-soft: #fcecea;
++  --brand-color: var(--accent);
++  --shadow: 0 6px 24px #34405409;
++  font-family: 'Outfit Variable', 'Noto Sans Bengali Variable', sans-serif;
++  color: var(--text);
++  background: var(--canvas);
++}
++:root[data-appearance='dark'] {
++  color-scheme: dark;
++  --canvas: #191c21;
++  --surface: #22262d;
++  --surface-muted: #292e36;
++  --surface-hover: #333a44;
++  --text: #f0f2f5;
++  --muted: #b3bdcb;
++  --subtle: #a1adbd;
++  --line: #3b424d;
++  --accent: #e36259;
++  --accent-hover: #ee766d;
++  --accent-soft: #442e2e;
++  --shadow: 0 6px 24px #10131918;
++}
++@media(prefers-color-scheme:dark) {
++  :root:not([data-appearance='light']) {
++    color-scheme:dark;
++    --canvas:#191c21;--surface:#22262d;--surface-muted:#292e36;--surface-hover:#333a44;
++    --text:#f0f2f5;--muted:#b3bdcb;--subtle:#a1adbd;--line:#3b424d;
++    --accent:#e36259;--accent-hover:#ee766d;--accent-soft:#442e2e;--shadow:0 6px 24px #10131918;
++  }
++}
++* {box-sizing:border-box}
++button,input,textarea,select {font:inherit}
++button:not(:disabled),summary {cursor:pointer}
++button:disabled {cursor:not-allowed;opacity:.48}
++button {transition:background .16s ease,color .16s ease,border-color .16s ease,transform .16s ease}
++button:not(:disabled):active {transform:translateY(1px)}
++button,summary,a,input,textarea,select {touch-action:manipulation}
++:focus-visible {outline:2px solid var(--accent);outline-offset:3px}
++button svg {flex-shrink:0;stroke-width:1.7}
++.app-shell {height:100dvh;display:flex;flex-direction:column;background:var(--canvas)}
++.workspace-header {height:68px;display:flex;align-items:center;gap:24px;flex-shrink:0;padding:0 28px;border-bottom:1px solid var(--line)}
++.workspace-brand {display:flex;gap:10px;align-items:center;text-decoration:none;color:var(--text);white-space:nowrap}
++.brand-symbol {display:grid;place-items:center;width:32px;height:32px;background:var(--accent);color:var(--surface);border-radius:10px;font-size:29px;font-weight:600;line-height:1;padding-bottom:4px}
++.workspace-brand strong {font-weight:600;font-size:17px;letter-spacing:-.6px}
++.workspace-brand strong span {font-weight:400;margin-left:3px}
++.workspace-divider {height:20px;width:1px;background:var(--line)}
++.workspace-name {font-size:13px;color:var(--muted);max-width:160px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
++.workspace-nav {margin-left:auto;display:flex;gap:18px;height:100%;align-items:center}
++.workspace-nav button {height:100%;display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);position:relative}
++.workspace-nav button[aria-current] {color:var(--text)}
++.workspace-nav button[aria-current]::after {content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--accent)}
++.appearance-toggle {display:grid;place-items:center;color:var(--muted);padding:8px;border-radius:8px;margin-left:4px}
++.appearance-toggle:hover {background:var(--surface-hover)}
++.account-menu {position:relative;z-index:30}
++.account-menu summary {display:flex;align-items:center;gap:10px;list-style:none;padding:4px;border-radius:8px}
++.account-menu summary::-webkit-details-marker {display:none}
++.account-avatar {width:32px;height:32px;border-radius:50%;background:var(--surface-hover);border:1px solid var(--line);color:var(--text);display:grid;place-items:center;font-size:13px;font-weight:500}
++.account-name {font-size:12px;line-height:1.4;font-weight:500}
++.account-name small {display:block;font-size:11px;color:var(--muted);font-weight:400;text-transform:capitalize}
++.account-popover {position:absolute;right:0;top:48px;width:244px;padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
++.account-popover p {font-size:12px;padding:12px 10px;color:var(--muted);overflow-wrap:anywhere}
++.account-popover button {display:flex;align-items:center;gap:10px;padding:11px;width:100%;font-size:13px;text-align:left;border-radius:7px;color:var(--text)}
++.account-popover button:hover {background:var(--surface-muted)}
++.coach-layout {display:flex;height:100%;position:relative;overflow:hidden}
++.coach-sidebar {width:252px;flex-shrink:0;display:flex;flex-direction:column;min-height:0;padding:25px 18px 18px;background:var(--canvas)}
++.sidebar-heading {padding:0 4px 24px}
++.sidebar-workspace {display:flex;align-items:center;gap:10px}
++.sidebar-workspace>span {display:grid;place-items:center;width:35px;height:35px;border:1px solid var(--line);background:var(--surface);border-radius:9px;font-size:15px;font-weight:500}
++.sidebar-workspace strong {font-size:13px;font-weight:500;display:block;max-width:155px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
++.sidebar-workspace small {display:block;font-size:11px;color:var(--muted);margin-top:3px}
++.new-conversation-button {display:flex;gap:9px;align-items:center;background:var(--accent);color:var(--surface);border-radius:9px;width:100%;padding:12px 13px;font-size:13px;font-weight:500;white-space:nowrap;margin-bottom:25px}
++.new-conversation-button>span {margin-left:auto;font-size:11px;opacity:.8;font-weight:400}
++.new-conversation-button:hover {background:var(--accent-hover)}
++.sidebar-modes {display:grid;gap:5px}
++.mode-button {display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;color:var(--muted);text-align:left;min-height:40px}
++.mode-button .text-sm {font-size:13px;font-weight:400}
++.mode-button:hover {color:var(--text);background:var(--surface-hover)}
++.mode-button.is-active {background:var(--surface);box-shadow:0 1px 3px #343a4608;color:var(--text)}
++.mode-button.is-active .text-sm {font-weight:500}
++.mode-button.is-active svg {color:var(--accent)}
++.sidebar-history {flex:1;min-height:90px;display:flex;flex-direction:column;margin-top:30px;overflow:hidden}
++.history-heading {padding:0 10px 12px;display:flex;align-items:center;justify-content:space-between}
++.history-heading h2 {font-size:11px;font-weight:500;color:var(--muted)}
++.history-search {display:flex;gap:8px;align-items:center;padding:8px 10px;margin-bottom:8px;border:1px solid transparent;border-radius:7px;color:var(--subtle)}
++.history-search:focus-within {background:var(--surface);border-color:var(--line)}
++.history-search input {min-width:0;width:100%;background:transparent;border:0;font-size:12px;color:var(--text);outline:none}
++.history-search input::placeholder {color:var(--muted)}
++.history-list {overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding:2px}
++.history-list>button {display:block;width:100%;padding:10px;margin:3px 0;border-radius:7px;text-align:left;color:var(--muted);border:1px solid transparent}
++.history-list>button:hover {background:var(--surface-hover);color:var(--text)}
++.history-list>button.is-active {background:var(--accent-soft);color:var(--text)}
++.history-list>button span {display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;line-height:1.7}
++.history-list small {display:block;font-size:10px;color:var(--muted);margin-top:3px}
++.history-list p {padding:8px 10px;font-size:12px;line-height:1.7;color:var(--muted)}
++.sidebar-footer {display:flex;align-items:center;gap:8px;padding:17px 7px 0;border-top:1px solid var(--line);margin-top:12px;color:var(--muted);font-size:11px}
++.coach-main {min-width:0;flex:1;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-bottom:0;border-right:0;border-radius:16px 0 0 0;margin-top:12px;overflow:hidden}
++.conversation-toolbar {display:flex;align-items:center;flex-wrap:wrap;gap:14px;padding:19px 30px;min-height:71px;border-bottom:1px solid var(--line);flex-shrink:0}
++.conversation-title {flex:1;min-width:0}
++.conversation-title strong {display:block;font-size:14px;font-weight:500;max-width:650px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
++.conversation-title>span {display:block;font-size:11px;color:var(--muted);margin-top:3px}
++.save-status {display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
++.mobile-sidebar-toggle {display:none}
++.coach-home {flex:1;min-height:0;overflow:auto;padding:44px max(30px,calc((100% - 856px)/2)) 30px;scrollbar-width:thin}
++.home-heading>p {font-size:15px;color:var(--muted);margin:0 0 12px}
++.home-heading h1 {font-weight:450;font-size:38px;line-height:1.15;letter-spacing:-1.1px;color:var(--text);margin-bottom:14px}
++.home-heading>span {font-size:14px;color:var(--muted);line-height:1.6}
++.conversation-composer {width:min(100%,842px);align-self:center;padding:14px 28px 20px;flex-shrink:0}
++.home-composer {padding:0;width:100%;margin:25px 0 16px}
++.composer-field {border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:var(--shadow);transition:border-color .18s ease}
++.composer-field:focus-within {border-color:var(--accent)}
++.composer-field textarea {display:block;resize:vertical;min-height:65px;max-height:220px;width:100%;padding:18px 20px 6px;font-size:15px;line-height:1.7;border:0;outline:0;background:transparent;color:var(--text);border-radius:14px}
++.home-composer textarea {min-height:100px;resize:none}
++.composer-field textarea::placeholder {color:var(--muted)}
++.composer-bottom {display:flex;justify-content:space-between;align-items:center;padding:8px 12px 12px 18px;gap:10px}
++.composer-bottom>span {display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted)}
++.composer-bottom>div {display:flex;align-items:center;gap:16px}
++.send-hint {display:flex;gap:4px;align-items:center;font-size:11px;color:var(--muted)}
++.composer-bottom button {width:34px;height:34px;display:grid;place-items:center;border-radius:8px;background:var(--accent);color:var(--surface)}
++.composer-bottom button:disabled {background:var(--surface-hover);color:var(--subtle);opacity:1}
++.conversation-composer>p {color:var(--muted);font-size:10px;text-align:center;line-height:1.5;margin-top:10px}
++.home-prompt-list {display:flex;flex-direction:column;gap:1px;max-width:680px}
++.home-prompt-list button {display:flex;gap:12px;align-items:center;padding:9px 3px;text-align:left;font-size:13px;color:var(--muted);border-radius:6px}
++.home-prompt-list button>span {flex:1}
++.home-prompt-list button>svg:last-child {opacity:0;transform:translate(-3px,3px);transition:opacity .16s,transform .16s}
++.home-prompt-list button:hover {color:var(--accent)}
++.home-prompt-list button:hover>svg:last-child {opacity:1;transform:none}
++.home-resources {margin-top:30px;padding-top:26px;border-top:1px solid var(--line)}
++.resource-heading {display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:17px}
++.resource-heading h2 {font-size:14px;font-weight:500}
++.resource-heading>span {color:var(--muted);font-size:11px}
++.resource-grid {display:grid;grid-template-columns:1.13fr 1fr;gap:25px}
++.resource-feature {display:grid;grid-template-columns:134px 1fr;gap:17px;text-align:left;align-items:center;color:var(--text)}
++.resource-preview {height:144px;overflow:hidden;background:var(--surface-muted);border-radius:10px;border:1px solid var(--line);display:grid;place-items:center}
++.resource-preview img {width:100%;height:100%;object-fit:cover;object-position:62% center;transition:transform .2s}
++.resource-feature:hover img {transform:scale(1.04)}
++.resource-kind {font-size:10px;color:var(--accent)}
++.resource-feature h3 {font-size:15px;line-height:1.3;font-weight:500;margin:6px 0}
++.resource-feature p {font-size:12px;line-height:1.65;color:var(--muted)}
++.resource-link {display:flex;align-items:center;gap:6px;font-size:11px;margin-top:12px}
++.resource-lessons {display:flex;flex-direction:column;justify-content:center;gap:7px}
++.resource-lessons button {display:flex;gap:12px;align-items:center;text-align:left;padding:14px 0;color:var(--muted)}
++.resource-lessons button>div {flex:1}
++.resource-lessons button>svg:last-child {opacity:.7}
++.resource-lessons h3 {font-size:13px;font-weight:500;color:var(--text);line-height:1.4}
++.resource-lessons p {font-size:11px;margin-top:4px;line-height:1.5}
++.resource-lessons button:hover h3,.resource-feature:hover .resource-link {color:var(--accent)}
++.conversation-messages {flex:1;min-height:0;overflow-y:auto;padding:28px max(14px,calc((100% - 814px)/2));scroll-behavior:smooth;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
++.coach-message {padding:8px 10px;margin-bottom:24px;gap:14px}
++.coach-message-user>div:first-child {background:var(--surface-muted)!important;color:var(--text);max-width:85%;padding:13px 18px;border-radius:12px 12px 3px 12px;box-shadow:none;font-size:15px;line-height:1.8}
++.coach-message-user>div:last-child {display:none}
++.coach-message-assistant>div:first-child {background:var(--accent-soft);width:29px;height:29px;border-radius:8px;box-shadow:none;color:var(--accent);border:0}
++.coach-avatar-letter {font-size:15px;font-weight:600}
++.coach-message-assistant>div:last-child {width:calc(100% - 43px);max-width:calc(100% - 43px)}
++.answer-heading>span {display:block;font-size:12px;font-weight:500;color:var(--muted);line-height:29px}
++.answer-heading h2 {font-size:18px;font-weight:500;color:var(--text);line-height:1.6;margin:8px 0 12px}
++.answer-surface {padding:0;box-shadow:none;border:0;background:transparent}
++.answer-surface>div:first-child {font-size:15px;line-height:1.9;color:var(--text);overflow-wrap:anywhere}
++.answer-surface strong {font-weight:550;color:var(--text)}
++.answer-surface>div:last-child {border:0;padding-top:12px;margin-top:12px;gap:14px;flex-wrap:wrap;color:var(--muted)}
++.answer-surface>div:last-child>div:first-child {font-size:11px;color:var(--muted)}
++.answer-surface>div:last-child>div:last-child {margin-left:auto;color:var(--muted)}
++.answer-caution {color:var(--accent);font-size:11px}
++.answer-gallery {border-top:1px solid var(--line);padding-top:20px;margin-top:20px!important}
++.answer-gallery .text-gray-800,.answer-gallery .text-gray-700 {color:var(--text)}
++.answer-gallery .text-gray-500 {color:var(--muted)}
++.guide-image-button {display:block;width:min(280px,75vw);flex-shrink:0;scroll-snap-align:start;border:1px solid var(--line);border-radius:9px;background:var(--surface);overflow:hidden;text-align:left}
++.guide-image-button>div:last-child {background:var(--surface);border-color:var(--line)}
++.guide-image-button:hover {border-color:var(--accent)}
++.conversation-actions {display:flex;flex-wrap:wrap;gap:7px;width:min(100%,842px);align-self:center;padding:4px 28px 2px}
++.conversation-actions button {font-size:11px;line-height:1.5;padding:7px 10px;background:var(--surface);border:1px solid var(--line);border-radius:6px;color:var(--muted);box-shadow:none}
++.conversation-actions button:hover {color:var(--text);background:var(--surface-muted);border-color:var(--line)}
++/* Layer order: navigation 20, account menu 30, screenshot dialog 50. */
++@media(max-width:1100px) {
++  .coach-sidebar {width:228px;padding-left:14px;padding-right:14px}
++  .coach-home {padding:32px 32px 24px}
++  .resource-grid {gap:18px;grid-template-columns:1fr 1fr}
++  .resource-feature {grid-template-columns:95px 1fr;gap:12px}
++  .resource-preview {height:140px}
++  .account-name {display:none}
++}
++@media(max-width:767px) {
++  .workspace-header {height:58px;padding:0 12px;gap:8px}
++  .workspace-brand strong {font-size:14px}
++  .brand-symbol {width:28px;height:28px;font-size:24px;border-radius:8px}
++  .workspace-name,.workspace-divider {display:none}
++  .workspace-nav {gap:8px}
++  .workspace-nav button {font-size:12px}
++  .workspace-nav button svg {display:none}
++  .appearance-toggle {padding:5px;margin:0}
++  .account-menu summary {padding:0}
++  .account-menu summary>svg {display:none}
++  .account-avatar {width:28px;height:28px;font-size:12px}
++  .coach-main {margin-top:0;border-radius:0;border:0}
++  .coach-sidebar {display:none;position:absolute;inset:63px auto 0 0;width:min(292px,88vw);z-index:20;border-right:1px solid var(--line);box-shadow:14px 0 28px #19212e12;padding-top:20px}
++  .coach-sidebar.is-open {display:flex}
++  .mobile-sidebar-toggle {display:grid;place-items:center;padding:8px;border-radius:7px;color:var(--muted)}
++  .conversation-toolbar {padding:10px 14px;gap:10px;min-height:63px}
++  .conversation-title strong {font-size:13px}
++  .conversation-title>span {font-size:10px}
++  .coach-home {padding:28px 20px 24px}
++  .home-heading h1 {font-size:31px;letter-spacing:-.8px;line-height:1.2}
++  .home-heading>p {font-size:13px}
++  .home-heading>span {font-size:13px}
++  .home-composer {margin-top:22px}
++  .composer-field textarea {font-size:14px;padding:15px 15px 4px}
++  .home-composer textarea {min-height:95px}
++  .composer-bottom {padding:8px 10px 10px 14px}
++  .send-hint {display:none}
++  .home-prompt-list button {font-size:12px;padding:10px 0;gap:10px;line-height:1.6}
++  .home-prompt-list button>svg:last-child {opacity:.7}
++  .resource-heading>span {display:none}
++  .home-resources {margin-top:24px;padding-top:22px}
++  .resource-grid {grid-template-columns:1fr;gap:16px}
++  .resource-feature {grid-template-columns:115px 1fr;gap:18px}
++  .resource-preview {height:120px}
++  .resource-lessons {gap:0}
++  .conversation-messages {padding:20px 9px}
++  .coach-message {padding:5px 2px;gap:9px}
++  .coach-message-assistant>div:last-child {max-width:calc(100% - 38px);width:calc(100% - 38px)}
++  .answer-heading h2 {font-size:17px;margin-top:5px}
++  .answer-surface>div:first-child {font-size:14px;line-height:1.95}
++  .answer-surface>div:last-child>div:first-child {width:100%}
++  .answer-surface>div:last-child>div:last-child {margin-left:0;flex-wrap:wrap}
++  .conversation-composer {padding:10px 13px 13px}
++  .home-composer {padding:0}
++  .conversation-actions {padding:4px 13px;flex-wrap:nowrap;overflow-x:auto}
++  .conversation-actions button {flex-shrink:0}
++  .account-popover {position:fixed;top:56px;right:12px}
++}
++@media(prefers-reduced-motion:reduce) {
++  *,*::before,*::after {scroll-behavior:auto!important;animation-duration:.01ms!important;transition:none!important}
++}
++/* Legacy admin/review controls consume the same palette as the chat shell. */
++.app-shell .bg-white {background-color:var(--surface)}
++.app-shell .bg-gray-50,.app-shell .bg-gray-100 {background-color:var(--surface-muted)}
++.app-shell .text-gray-900,.app-shell .text-gray-800,.app-shell .text-gray-700 {color:var(--text)}
++.app-shell .text-gray-600,.app-shell .text-gray-500,.app-shell .text-gray-400 {color:var(--muted)}
++.app-shell .border-gray-100,.app-shell .border-gray-200 {border-color:var(--line)}
++.app-shell input,.app-shell select {color:var(--text)}
+ 
+-[data-theme-color="blue"] {
+-  --brand-color: #2563eb;
+-  --brand-color-hover: #1d4ed8;
+-  --brand-color-light: #eff6ff;
+-  --brand-border-light: #dbeafe;
+-}
+-
+-[data-theme-color="green"] {
+-  --brand-color: #059669;
+-  --brand-color-hover: #047857;
+-  --brand-color-light: #ecfdf5;
+-  --brand-border-light: #d1fae5;
+-}
+-
+-[data-theme-color="purple"] {
+-  --brand-color: #7c3aed;
+-  --brand-color-hover: #6d28d9;
+-  --brand-color-light: #f5f3ff;
+-  --brand-border-light: #ede9fe;
+-}
+-
+-[data-theme-color="orange"] {
+-  --brand-color: #ea580c;
+-  --brand-color-hover: #c2410c;
+-  --brand-color-light: #fff7ed;
+-  --brand-border-light: #ffedd5;
+-}
+-
+-@theme {
+-  --font-sans: "Outfit", "Outfit, sans-serif", ui-sans-serif, system-ui;
+-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+-  
+-  --color-brand: var(--brand-color);
+-  --color-brand-hover: var(--brand-color-hover);
+-  --color-brand-light: var(--brand-color-light);
+-  --color-brand-border: var(--brand-border-light);
+-}
+-
+-/* Custom focus styles to assure WCAG AA compliance */
+-*:focus-visible {
+-  outline: 2px solid var(--brand-color);
+-  outline-offset: 2px;
+-}
+-
+-/* Sidebar chat panel slide-in animation */
+-@keyframes slide-in-right {
+-  from {
+-    transform: translateX(100%);
+-    opacity: 0;
+-  }
+-  to {
+-    transform: translateX(0);
+-    opacity: 1;
+-  }
+-}
+-
+-.animate-slide-in-right {
+-  animation: slide-in-right 0.25s ease-out;
+-}
+-
+-/* Shared workspace surfaces keep navigation separate from the reading canvas. */
+-@theme {
+-  --font-sans:'Segoe UI','Noto Sans Bengali',system-ui,sans-serif;
+-}
+-:root {
+-  color:#282d35;
+-  background:#fafbfc
+-}
+-button:not(:disabled),summary {
+-  cursor:pointer
+-}
+-button:disabled {
+-  opacity:.45;
+-  cursor:not-allowed
+-}
+-.app-shell {
+-  height:100dvh;
+-  display:flex;
+-  flex-direction:column
+-}
+-.workspace-header {
+-  height:70px;
+-  flex-shrink:0;
+-  display:flex;
+-  align-items:center;
+-  gap:22px;
+-  padding:0 26px;
+-  border-bottom:1px solid #e8e9ec;
+-  background:white;
+-  position:relative;
+-  z-index:30
+-}
+-.workspace-brand {
+-  display:flex;
+-  align-items:center;
+-  gap:10px;
+-  color:#24272c;
+-  text-decoration:none;
+-  white-space:nowrap
+-}
+-.workspace-brand strong {
+-  font-size:17px;
+-  letter-spacing:-.6px
+-}
+-.workspace-brand strong span {
+-  font-weight:400;
+-  margin-left:4px
+-}
+-.brand-symbol {
+-  background:#e83330;
+-  color:white;
+-  display:grid;
+-  place-items:center;
+-  width:31px;
+-  height:31px;
+-  border-radius:9px
+-}
+-.workspace-divider {
+-  height:22px;
+-  width:1px;
+-  background:#e4e5e8
+-}
+-.workspace-name {
+-  font-size:13px;
+-  color:#686e78;
+-  max-width:170px;
+-  overflow:hidden;
+-  text-overflow:ellipsis;
+-  white-space:nowrap
+-}
+-.workspace-nav {
+-  display:flex;
+-  gap:6px;
+-  margin-left:auto
+-}
+-.workspace-nav button {
+-  display:flex;
+-  align-items:center;
+-  gap:7px;
+-  padding:9px 12px;
+-  border-radius:8px;
+-  color:#666c77;
+-  font-size:13px
+-}
+-.workspace-nav button[aria-current],.workspace-nav button:hover {
+-  background:#f4f5f7;
+-  color:#24272c
+-}
+-.account-menu {
+-  position:relative
+-}
+-.account-menu summary {
+-  display:flex;
+-  align-items:center;
+-  gap:10px;
+-  list-style:none
+-}
+-.account-menu summary::-webkit-details-marker {
+-  display:none
+-}
+-.account-avatar {
+-  display:grid;
+-  place-items:center;
+-  width:34px;
+-  height:34px;
+-  border-radius:50%;
+-  background:#f4ebe8;
+-  color:#924a3c;
+-  font-size:13px;
+-  font-weight:600
+-}
+-.account-name {
+-  font-size:12px;
+-  font-weight:600
+-}
+-.account-name small {
+-  display:block;
+-  color:#838793;
+-  font-weight:400;
+-  font-size:11px;
+-  text-transform:capitalize
+-}
+-.account-popover {
+-  position:absolute;
+-  right:0;
+-  top:48px;
+-  padding:8px;
+-  width:240px;
+-  background:white;
+-  border:1px solid #e5e7eb;
+-  border-radius:12px;
+-  box-shadow:0 12px 40px #171c2820
+-}
+-.account-popover p {
+-  font-size:12px;
+-  color:#777d87;
+-  padding:10px;
+-  overflow-wrap:anywhere
+-}
+-.account-popover button {
+-  display:flex;
+-  align-items:center;
+-  gap:10px;
+-  font-size:13px;
+-  width:100%;
+-  padding:10px;
+-  border-radius:7px
+-}
+-.account-popover button:hover {
+-  background:#f4f5f7
+-}
+-.coach-layout {
+-  display:flex;
+-  height:100%;
+-  overflow:hidden;
+-  position:relative
+-}
+-.coach-sidebar {
+-  width:264px;
+-  flex-shrink:0;
+-  display:flex;
+-  flex-direction:column;
+-  background:#22252b;
+-  color:#d3d6dc;
+-  min-height:0;
+-  padding:22px 14px 16px
+-}
+-.sidebar-heading {
+-  padding:0 10px 24px
+-}
+-.sidebar-coach-icon {
+-  display:grid;
+-  place-items:center;
+-  width:36px;
+-  height:36px;
+-  background:#363940;
+-  border:1px solid #4a4c52;
+-  border-radius:10px
+-}
+-.sidebar-title {
+-  font-size:15px;
+-  font-weight:600;
+-  color:white
+-}
+-.sidebar-heading .text-gray-500 {
+-  color:#aeb3bd;
+-  font-size:11px;
+-  margin-top:4px
+-}
+-.sidebar-modes {
+-  display:flex;
+-  flex-direction:column;
+-  gap:3px
+-}
+-.mode-button {
+-  display:flex;
+-  gap:12px;
+-  align-items:center;
+-  padding:10px 12px;
+-  border-radius:8px;
+-  text-align:left;
+-  color:#b7bdc8
+-}
+-.mode-button:hover {
+-  background:#2d3037;
+-  color:white
+-}
+-.mode-button.is-active {
+-  background:#393b43;
+-  color:white
+-}
+-.mode-button.is-active>svg {
+-  color:#ff857d
+-}
+-.mode-button .text-gray-400 {
+-  font-size:11px;
+-  color:#9299a6;
+-  margin-top:2px
+-}
+-.sidebar-history {
+-  min-height:80px;
+-  flex:1;
+-  display:flex;
+-  flex-direction:column;
+-  margin-top:28px;
+-  overflow:hidden
+-}
+-.history-heading {
+-  display:flex;
+-  justify-content:space-between;
+-  align-items:center;
+-  padding:0 12px 12px
+-}
+-.history-heading h2 {
+-  font-size:12px;
+-  font-weight:600;
+-  color:#959da9
+-}
+-.history-heading button {
+-  padding:4px;
+-  color:#afb6c2
+-}
+-.history-search {
+-  display:flex;
+-  align-items:center;
+-  gap:8px;
+-  padding:9px 10px;
+-  background:#2a2d34;
+-  border:1px solid #363942;
+-  border-radius:7px;
+-  color:#7f8998;
+-  margin:0 5px 8px
+-}
+-.history-search input {
+-  min-width:0;
+-  width:100%;
+-  font-size:12px;
+-  background:transparent;
+-  outline:none;
+-  color:#e2e5eb
+-}
+-.history-list {
+-  overflow-y:auto;
+-  padding:0 3px;
+-  scrollbar-width:thin;
+-  scrollbar-color:#515560 transparent
+-}
+-.history-list>button {
+-  display:block;
+-  width:100%;
+-  text-align:left;
+-  padding:10px;
+-  border-radius:7px;
+-  font-size:13px;
+-  margin:3px 0;
+-  color:#bec4ce
+-}
+-.history-list>button:hover,.history-list>button.is-active {
+-  background:#33363e;
+-  color:white
+-}
+-.history-list>button.is-active {
+-  box-shadow:inset 2px 0 #ef635b
+-}
+-.history-list>button span {
+-  display:block;
+-  overflow:hidden;
+-  text-overflow:ellipsis;
+-  white-space:nowrap
+-}
+-.history-list small {
+-  display:block;
+-  font-size:10px;
+-  color:#8d96a5;
+-  margin-top:5px
+-}
+-.history-list p {
+-  font-size:12px;
+-  line-height:1.6;
+-  color:#939caa;
+-  padding:12px
+-}
+-.sidebar-footer {
+-  padding-top:16px;
+-  margin-top:12px;
+-  border-top:1px solid #3a3e46
+-}
+-.new-conversation-button {
+-  display:flex;
+-  align-items:center;
+-  justify-content:center;
+-  gap:8px;
+-  background:#e83330;
+-  color:white;
+-  padding:11px;
+-  border-radius:8px;
+-  width:100%;
+-  font-size:12px;
+-  font-weight:600;
+-  margin-bottom:12px
+-}
+-.new-conversation-button:hover {
+-  background:#cd2926
+-}
+-.coach-main {
+-  display:flex;
+-  flex-direction:column;
+-  flex:1;
+-  min-width:0;
+-  min-height:0;
+-  background:#fafbfc
+-}
+-.conversation-toolbar {
+-  display:flex;
+-  flex-wrap:wrap;
+-  align-items:center;
+-  gap:18px;
+-  padding:18px 30px;
+-  background:white;
+-  border-bottom:1px solid #eceef1;
+-  min-height:78px
+-}
+-.conversation-title {
+-  min-width:0;
+-  flex:1
+-}
+-.conversation-title strong {
+-  font-size:14px;
+-  font-weight:600;
+-  display:block;
+-  max-width:560px;
+-  white-space:nowrap;
+-  overflow:hidden;
+-  text-overflow:ellipsis
+-}
+-.conversation-title>span {
+-  display:block;
+-  font-size:11px;
+-  color:#89919d;
+-  margin-top:4px
+-}
+-.save-status {
+-  display:flex;
+-  align-items:center;
+-  gap:4px;
+-  font-size:11px;
+-  color:#78828d
+-}
+-.toolbar-new {
+-  display:flex;
+-  align-items:center;
+-  gap:7px;
+-  border:1px solid #e3e6eb;
+-  border-radius:7px;
+-  padding:8px 10px;
+-  color:#59616d;
+-  font-size:12px
+-}
+-.mobile-sidebar-toggle {
+-  display:none
+-}
+-.coach-welcome {
+-  flex:1;
+-  min-height:0;
+-  overflow-y:auto;
+-  text-align:center;
+-  padding:clamp(28px,6vh,70px) 32px 24px
+-}
+-.welcome-mark {
+-  display:grid;
+-  place-items:center;
+-  width:54px;
+-  height:54px;
+-  border-radius:16px;
+-  background:#fff0ed;
+-  color:#e83330;
+-  margin:0 auto 24px
+-}
+-.welcome-kicker {
+-  font-size:12px;
+-  color:#888f9a;
+-  margin-bottom:12px
+-}
+-.coach-welcome h1 {
+-  font-size:clamp(28px,3vw,40px);
+-  line-height:1.2;
+-  letter-spacing:-1.2px;
+-  font-weight:600;
+-  color:#24272d
+-}
+-.welcome-description {
+-  font-size:14px;
+-  color:#7a828e;
+-  line-height:1.8;
+-  margin-top:18px
+-}
+-.welcome-suggestions {
+-  display:grid;
+-  grid-template-columns:repeat(3,1fr);
+-  gap:14px;
+-  max-width:730px;
+-  margin:34px auto 26px
+-}
+-.welcome-suggestions button {
+-  position:relative;
+-  text-align:left;
+-  border:1px solid #e4e7ec;
+-  border-radius:12px;
+-  background:white;
+-  padding:21px 18px;
+-  transition:border-color .15s,background .15s;
+-  color:#64707d
+-}
+-.welcome-suggestions button:hover {
+-  border-color:#e79a94;
+-  background:#fffaf9
+-}
+-.welcome-suggestions strong {
+-  display:block;
+-  color:#363c44;
+-  font-size:13px;
+-  font-weight:600;
+-  margin:20px 0 5px
+-}
+-.welcome-suggestions span {
+-  display:block;
+-  color:#9399a3;
+-  font-size:11px
+-}
+-.suggestion-arrow {
+-  position:absolute;
+-  right:17px;
+-  top:22px;
+-  color:#b8bec7
+-}
+-.welcome-topics {
+-  display:flex;
+-  gap:10px 15px;
+-  justify-content:center;
+-  flex-wrap:wrap;
+-  max-width:700px;
+-  margin:auto;
+-  font-size:11px
+-}
+-.welcome-topics>span {
+-  color:#929aa5
+-}
+-.welcome-topics button {
+-  color:#5c6573;
+-  text-decoration:underline;
+-  text-underline-offset:4px;
+-  text-decoration-color:#d2d7de
+-}
+-.welcome-language {
+-  font-size:12px;
+-  color:#9299a3;
+-  margin-top:32px
+-}
+-.conversation-messages {
+-  flex:1;
+-  min-height:0;
+-  overflow-y:auto;
+-  padding:30px max(12px,calc((100% - 850px)/2));
+-  scroll-behavior:smooth
+-}
+-.coach-message {
+-  margin-bottom:18px;
+-  padding:8px 16px;
+-  line-height:1.85
+-}
+-.coach-message-user>div:first-child {
+-  background:#f0f1f4!important;
+-  color:#303640;
+-  border-radius:14px 14px 4px 14px;
+-  box-shadow:none;
+-  max-width:85%;
+-  font-size:15px;
+-  padding:12px 18px
+-}
+-.coach-message-user>div:last-child {
+-  display:none
+-}
+-.coach-message-assistant>div:first-child {
+-  background:#fff1ee;
+-  border:1px solid #ffdfd8;
+-  color:#df4c40;
+-  box-shadow:none;
+-  border-radius:10px
+-}
+-.coach-message-assistant>div:first-child svg {
+-  color:#df4c40
+-}
+-.coach-message-assistant>div:last-child {
+-  max-width:calc(100% - 44px);
+-  width:100%
+-}
+-.answer-surface {
+-  background:transparent;
+-  padding:8px 0 12px;
+-  border:0;
+-  box-shadow:none
+-}
+-.answer-surface>div:first-child {
+-  font-size:15px;
+-  line-height:1.9;
+-  color:#434b58
+-}
+-.answer-surface>div:first-child li {
+-  line-height:1.9
+-}
+-.answer-surface>div:last-child {
+-  border-color:#eceff3;
+-  padding-top:12px
+-}
+-.coach-message-assistant .text-xs.font-bold {
+-  font-size:13px
+-}
+-.conversation-actions {
+-  display:flex;
+-  gap:7px;
+-  flex-wrap:wrap;
+-  width:min(100%,850px);
+-  align-self:center;
+-  padding:4px 28px 8px
+-}
+-.conversation-actions button {
+-  font-size:11px;
+-  border-radius:7px;
+-  box-shadow:none;
+-  padding:7px 9px
+-}
+-.conversation-composer {
+-  width:min(100%,880px);
+-  align-self:center;
+-  padding:12px 30px 19px
+-}
+-.composer-field {
+-  position:relative;
+-  border:1px solid #dfe3e9;
+-  border-radius:15px;
+-  background:white;
+-  box-shadow:0 4px 20px #1f293706
+-}
+-.composer-field:focus-within {
+-  border-color:#d58c87;
+-  box-shadow:0 0 0 3px #e8333008
+-}
+-.composer-field input {
+-  border:0;
+-  box-shadow:none!important;
+-  outline:none!important;
+-  min-height:64px;
+-  padding:18px 65px 18px 20px;
+-  border-radius:15px;
+-  font-size:14px;
+-  background:transparent
+-}
+-.composer-field button {
+-  box-shadow:none;
+-  border-radius:10px;
+-  right:12px
+-}
+-.conversation-composer>p {
+-  font-size:10px;
+-  color:#989faa;
+-  margin-top:10px
+-}
+-@media(max-width:1000px) {
+-  .workspace-header {
+-    padding:0 18px;
+-    gap:15px
+-  }
+-  .account-name {
+-    display:none
+-  }
+-  .coach-sidebar {
+-    width:235px
+-  }
+-  .welcome-suggestions {
+-    gap:8px
+-  }
+-  .welcome-suggestions button {
+-    padding:16px 12px
+-  }
+-  .welcome-suggestions strong {
+-    line-height:1.5
+-  }
+-  .conversation-toolbar {
+-    padding:16px 22px
+-  }
+-}
+-@media(max-width:700px) {
+-  .workspace-header {
+-    height:60px;
+-    gap:10px;
+-    padding:0 12px
+-  }
+-  .workspace-brand strong {
+-    font-size:14px
+-  }
+-  .workspace-name,.workspace-divider {
+-    display:none
+-  }
+-  .workspace-nav {
+-    gap:0
+-  }
+-  .workspace-nav button {
+-    font-size:11px;
+-    padding:8px
+-  }
+-  .workspace-nav button svg {
+-    display:none
+-  }
+-  .account-menu summary>svg {
+-    display:none
+-  }
+-  .account-avatar {
+-    width:30px;
+-    height:30px
+-  }
+-  .coach-sidebar {
+-    display:none;
+-    position:absolute;
+-    inset:63px auto 0 0;
+-    z-index:20;
+-    width:min(290px,85vw);
+-    box-shadow:8px 10px 25px #171b2820
+-  }
+-  .coach-sidebar.is-open {
+-    display:flex
+-  }
+-  .mobile-sidebar-toggle {
+-    display:block;
+-    padding:7px;
+-    color:#697383
+-  }
+-  .conversation-toolbar {
+-    gap:10px;
+-    padding:10px 14px;
+-    min-height:63px
+-  }
+-  .conversation-title strong {
+-    font-size:12px
+-  }
+-  .conversation-title>span {
+-    font-size:10px
+-  }
+-  .toolbar-new {
+-    padding:7px
+-  }
+-  .toolbar-new span {
+-    display:none
+-  }
+-  .save-status {
+-    font-size:10px
+-  }
+-  .coach-welcome {
+-    padding:30px 20px 20px
+-  }
+-  .welcome-mark {
+-    margin-bottom:18px;
+-    width:44px;
+-    height:44px
+-  }
+-  .welcome-suggestions {
+-    grid-template-columns:1fr;
+-    margin-top:22px;
+-    gap:9px
+-  }
+-  .welcome-suggestions button {
+-    padding:16px 18px 16px 52px
+-  }
+-  .welcome-suggestions button>svg:first-child {
+-    position:absolute;
+-    top:21px;
+-    left:18px;
+-    width:18px
+-  }
+-  .welcome-suggestions strong {
+-    margin:0 0 3px
+-  }
+-  .welcome-description {
+-    font-size:13px;
+-    margin-top:13px
+-  }
+-  .welcome-language {
+-    margin-top:20px
+-  }
+-  .conversation-messages {
+-    padding:18px 2px
+-  }
+-  .coach-message {
+-    padding:5px 12px;
+-    gap:9px
+-  }
+-  .answer-surface>div:first-child {
+-    font-size:14px
+-  }
+-  .conversation-composer {
+-    padding:8px 12px 12px
+-  }
+-  .conversation-actions {
+-    padding:3px 12px 6px;
+-    flex-wrap:nowrap;
+-    overflow-x:auto
+-  }
+-  .conversation-actions button {
+-    flex-shrink:0
+-  }
+-  .conversation-composer>p {
+-    font-size:9px
+-  }
+-  .composer-field input {
+-    min-height:56px;
+-    font-size:13px
+-  }
+-  .coach-message-user>div:first-child {
+-    font-size:14px
+-  }
+-  .welcome-topics {
+-    gap:10px
+-  }
+-}
+-@media(prefers-reduced-motion:reduce) {
+-  *,*::before,*::after {
+-    scroll-behavior:auto!important;
+-    animation-duration:.01ms!important;
+-    transition:none!important
+-  }
+-}
+-.signin-layout {
+-  min-height:100dvh;
+-  display:grid;
+-  grid-template-columns:minmax(320px,.9fr) 1.1fr;
+-  background:white
+-}
+-.signin-story {
+-  display:flex;
+-  flex-direction:column;
+-  justify-content:space-between;
+-  background:#24272d;
+-  color:white;
+-  padding:48px clamp(32px,6vw,100px);
+-  min-height:100dvh
+-}
+-.signin-wordmark {
+-  font-size:18px;
+-  font-weight:600;
+-  letter-spacing:-.4px
+-}
+-.signin-story>div>p {
+-  font-size:12px;
+-  color:#b7becb;
+-  margin-bottom:22px
+-}
+-.signin-story h2 {
+-  font-size:clamp(32px,4vw,58px);
+-  font-weight:500;
+-  letter-spacing:-1.5px;
+-  line-height:1.15;
+-  margin-bottom:25px
+-}
+-.signin-story>div>span {
+-  display:block;
+-  max-width:340px;
+-  color:#abb3c0;
+-  font-size:15px;
+-  line-height:1.8
+-}
+-.signin-story small {
+-  color:#a0a9b7;
+-  font-size:12px
+-}
+-.signin-form-area {
+-  display:grid;
+-  place-items:center;
+-  padding:40px 24px
+-}
+-.signin-form {
+-  max-width:370px;
+-  width:100%
+-}
+-.signin-form h1 {
+-  font-size:27px;
+-  letter-spacing:-.7px;
+-  margin-top:10px
+-}
+-.signin-form input {
+-  border-color:#dfe3e9;
+-  border-radius:8px;
+-  padding:12px;
+-  background:#fff
+-}
+-.signin-form>button {
+-  min-height:44px
+-}
+-.signin-form>label {
+-  color:#525b68
+-}
+-.signin-form button:not([type='button']) {
+-  background:#e83330
+-}
+-.signin-form>div:first-child {
+-  margin-bottom:28px
+-}
+-.signin-form .text-xs {
+-  line-height:1.6
+-}
+-@media(max-width:700px) {
+-  .signin-layout {
+-    display:block
+-  }
+-  .signin-story {
+-    min-height:auto;
+-    padding:24px
+-  }
+-  .signin-story>div:not(.signin-wordmark),.signin-story small {
+-    display:none
+-  }
+-  .signin-form-area {
+-    padding:38px 24px
+-  }
+-  .signin-form h1 {
+-    font-size:25px
+-  }
+-  .account-popover {
+-    position:fixed;
+-    top:60px;
+-    right:10px
+-  }
+-}
+-@media(max-width:700px) {
+-  .answer-surface>div:last-child {
+-    flex-wrap:wrap;
+-    gap:10px
+-  }
+-  .answer-surface>div:last-child>div:first-child {
+-    width:100%;
+-    flex-wrap:wrap
+-  }
+-  .answer-surface>div:last-child>div:last-child {
+-    margin-left:auto
+-  }
+-  .account-menu summary {
+-    min-width:32px;
+-    min-height:32px
+-  }
+-}
++/* Sign-in uses the same reading and surface hierarchy as the workspace. */
++.signin-layout {min-height:100dvh;display:grid;grid-template-columns:1fr 1fr;background:var(--surface)}
++.signin-story {background:var(--canvas);padding:48px 64px;display:flex;flex-direction:column;justify-content:space-between;border-right:1px solid var(--line)}
++.signin-wordmark {font-size:20px;font-weight:600;letter-spacing:-.6px}
++.signin-story p {font-size:14px;color:var(--accent);margin-bottom:20px}
++.signin-story h2 {font-size:clamp(36px,4vw,58px);font-weight:500;line-height:1.1;letter-spacing:-2px;max-width:420px;margin-bottom:24px}
++.signin-story span {display:block;max-width:350px;font-size:17px;line-height:1.7;color:var(--muted)}
++.signin-story small {color:var(--muted);font-size:13px}
++.signin-form-area {display:flex;align-items:center;justify-content:center;padding:40px}
++.signin-form {width:100%;max-width:370px}
++.signin-form h1 {font-size:27px;letter-spacing:-.7px}
++.signin-form input {background:var(--surface);border-color:var(--line);color:var(--text)}
++.signin-form .text-gray-500 {color:var(--muted)}
++.signin-form .bg-white {background:var(--surface)}
++.signin-form .bg-red-600 {background:var(--accent);color:var(--surface)}
++@media(max-width:767px) {.signin-layout {display:block}.signin-story {padding:24px;border-right:0;border-bottom:1px solid var(--line)}.signin-story>div:not(.signin-wordmark),.signin-story>small {display:none}.signin-form-area {padding:36px 24px}}
+--- a/commerce-coach/src/pages/CommerceCoachPage.tsx
++++ b/commerce-coach/src/pages/CommerceCoachPage.tsx
+@@ -1,7 +1,7 @@
+ import { useConversationHistory } from '../coach/useConversationHistory';
+ import { useAuth } from '../auth/AuthContext';
+ import { screenshotUrl } from '../coach/screenshotAssets';
+-import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
++import { useState, useRef, useEffect, useCallback, type KeyboardEvent, type ReactNode } from 'react';
+ import { getThemeColor } from '../utils/themeColors';
+ import { processMessage, processMessageLLM, getWelcomeMessage, getQuickActions, isGeminiAvailable, isOpenRouterAvailable, ChatMessage, ConversationState } from '../coach/responseEngine';
+ import { isGeminiAvailable as isGeminiConfig } from '../coach/geminiService';
+@@ -15,7 +15,7 @@
+   Bot, Send, RotateCcw, BookOpen, Sparkles, AlertTriangle,
+   ChevronRight, ChevronLeft, MessageSquare, Zap, BarChart3, Package,
+   ShoppingCart, Store, Users, FileText, Truck, Lightbulb,
+-  Copy, Check, ImageIcon, ExternalLink, Loader2, X, BrainCircuit, PanelLeft, Plus, Search, ArrowUpRight
++  Copy, Check, ImageIcon, ExternalLink, Loader2, X, BrainCircuit, PanelLeft, Plus, Search, ArrowUpRight, ArrowUp, CornerDownLeft, PanelLeftClose, Warehouse, CircleHelp
+ } from 'lucide-react';
+ 
+ function uid(): string {
+@@ -57,7 +57,7 @@
+   return (
+     <div className="flex gap-3 px-6 py-3 justify-start">
+       <div className="w-8 h-8 rounded-xl bg-[#e83330] flex items-center justify-center shrink-0 shadow-md">
+-        <Bot size={16} className="text-white" />
++        <span className="coach-avatar-letter">C</span>
+       </div>
+       <div className="flex items-center gap-1.5 bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3">
+         <Loader2 size={14} className="text-gray-400 animate-spin" />
+@@ -67,18 +67,21 @@
+   );
+ }
+ 
+-function WelcomeScreen({ onSend }: { onSend: (text: string) => void }) {
+-  return <div className="coach-welcome"><div className="welcome-mark"><ArrowUpRight size={28}/></div>
+-    <p className="welcome-kicker">Your commerce workspace</p><h1>What can we work on?</h1>
+-    <p className="welcome-description">From your first warehouse to your next order.<br/>Get clear steps, visual guides, and a little practice.</p>
+-    <div className="welcome-suggestions">
+-      {[
+-        {icon:Package,title:'Set up a warehouse',description:'Your stock starts here',prompt:'ওয়্যারহাউস কীভাবে তৈরি করব?'},
+-        {icon:ShoppingCart,title:'Understand your orders',description:'From checkout to delivery',prompt:'How does order processing work?'},
+-        {icon:BookOpen,title:'Learn something new',description:'A guided Commerce lesson',prompt:'Train me on Commerce basics'},
+-      ].map(({icon:Icon,title,description,prompt})=><button key={title} onClick={()=>onSend(prompt)}><Icon size={21}/><strong>{title}</strong><span>{description}</span><ArrowUpRight size={16} className="suggestion-arrow"/></button>)}
+-    </div><div className="welcome-topics"><span>Explore</span>{FEATURE_CARDS.map(card=><button key={card.label} onClick={()=>onSend(card.prompt)}>{card.label}</button>)}</div>
+-    <p className="welcome-language">বাংলা বা English—যেভাবে স্বচ্ছন্দ, সেভাবেই প্রশ্ন করুন।</p>
++function WelcomeScreen({ onSend, composer, name }: { onSend: (text: string) => void; composer: ReactNode; name:string }) {
++  return <div className="coach-home">
++    <div className="home-heading"><p>Hello, {name.split(' ')[0]}.</p><h1>What would you like<br/>to do today?</h1><span>Get help with orders, warehouses, and your store.</span></div>
++    {composer}
++    <div className="home-prompt-list" aria-label="Suggested questions">
++      <button onClick={()=>onSend('ওয়্যারহাউস কীভাবে তৈরি করব?')}><Warehouse size={17}/><span>ওয়্যারহাউস কীভাবে তৈরি করব?</span><ArrowUpRight size={16}/></button>
++      <button onClick={()=>onSend('Where is my Instant Checkout order? It is not in New Orders.')}><ShoppingCart size={17}/><span>Where did my Instant Checkout order go?</span><ArrowUpRight size={16}/></button>
++      <button onClick={()=>onSend('How do I create an ad catalogue for Meta Ads?')}><Store size={17}/><span>Help me create a catalogue for Meta Ads</span><ArrowUpRight size={16}/></button>
++    </div>
++    <div className="home-resources"><div className="resource-heading"><h2>A good place to start</h2><span>From the Commerce playbook</span></div>
++      <div className="resource-grid"><button className="resource-feature" onClick={()=>onSend('ওয়্যারহাউস কীভাবে তৈরি করব?')}>
++        <div className="resource-preview"><img src={screenshotUrl('image96.jpg')} alt="Warehouse setup form in Pathao Commerce"/></div>
++        <div><span className="resource-kind">Visual guide</span><h3>Your first warehouse</h3><p>Set up your location, contact details, and approval.</p><span className="resource-link">Open guide <ArrowUpRight size={15}/></span></div>
++      </button><div className="resource-lessons"><button onClick={()=>onSend('Train me on Commerce basics')}><BookOpen size={20}/><div><h3>Get to know Commerce</h3><p>A guided lesson, at your pace.</p></div><ArrowUpRight size={16}/></button><button onClick={()=>onSend('Quiz me on Commerce')}><CircleHelp size={20}/><div><h3>Put your knowledge to work</h3><p>Practice with real merchant scenarios.</p></div><ArrowUpRight size={16}/></button></div></div>
++    </div>
+   </div>;
+ }
+ 
+@@ -125,28 +128,10 @@
+   return (
+     <div className="coach-message coach-message-assistant flex gap-3 px-6 py-2 justify-start">
+       <div className="w-8 h-8 rounded-xl bg-[#e83330] flex items-center justify-center shrink-0 shadow-md">
+-        <Bot size={16} className="text-white" />
++        <span className="coach-avatar-letter">C</span>
+       </div>
+       <div className="max-w-[88%] xl:max-w-[80%] space-y-2">
+-        {/* Feature badge */}
+-        {(hasFeature || message.metadata?.intent) && (
+-          <div className="flex items-center gap-2">
+-            {hasFeature && (
+-              <span className="text-xs font-bold text-gray-800 bg-gray-100 px-2.5 py-1 rounded-lg">{message.metadata!.feature}</span>
+-            )}
+-            {message.metadata!.status && (
+-              <span className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded-full border ${
+-                message.metadata!.status === 'live' ? 'bg-green-50 text-green-700 border-green-200' :
+-                message.metadata!.status === 'coming-soon' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+-                'bg-gray-50 text-gray-600 border-gray-200'
+-              }`}>
+-                {message.metadata!.status!.replace(/-/g, ' ')}
+-              </span>
+-            )}
+-            <IntentBadge intent={message.metadata?.intent} />
+-          </div>
+-        )}
+-
++        <div className="answer-heading"><span>Commerce Coach</span>{hasFeature&&<h2>{message.metadata!.feature}</h2>}</div>
+         {/* Main content */}
+         <div className="answer-surface">
+           <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none prose-headings:font-bold prose-headings:text-gray-900 prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-strong:text-gray-900 prose-a:text-red-600 prose-a:no-underline hover:prose-a:underline">
+@@ -160,15 +145,8 @@
+                   {message.metadata!.source}
+                 </span>
+               )}
+-              {message.metadata?.confidence && (
+-                <span className={`px-1.5 py-0.5 rounded-full font-medium ${
+-                  message.metadata.confidence === 'high' ? 'bg-green-50 text-green-600' :
+-                  message.metadata.confidence === 'medium' ? 'bg-yellow-50 text-yellow-600' :
+-                  'bg-red-50 text-red-600'
+-                }`}>
+-                  {message.metadata.confidence} confidence
+-                </span>
+-              )}
++              {message.metadata?.confidence==='low'&&<span className="answer-caution">Needs confirmation</span>}
++
+             </div>
+             <div className="flex items-center gap-1">
+               <ResponseFeedback message={message} query={query} />
+@@ -182,7 +160,7 @@
+ 
+         {/* Screenshots */}
+         {hasScreenshots && (
+-          <section className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm" aria-label="Product Memo screenshots">
++          <section className="answer-gallery" aria-label="Product Memo screenshots">
+             <div className="mb-3 flex items-center justify-between gap-3 px-1">
+               <div className="flex items-center gap-2 text-xs font-semibold text-gray-800">
+                 <ImageIcon size={14} className="text-red-600" />
+@@ -198,7 +176,7 @@
+                   key={screenshot.src}
+                   type="button"
+                   onClick={() => onImageClick?.(previewImages, idx)}
+-                  className="group w-[min(22rem,80vw)] shrink-0 snap-start overflow-hidden rounded-xl border border-gray-200 bg-white text-left transition-colors hover:border-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
++                  className="guide-image-button"
+                 >
+                   <div className="aspect-[16/9] overflow-hidden bg-slate-50">
+                     <img
+@@ -247,7 +225,7 @@
+   const [aiProvider, setAiProvider] = useState<'openrouter' | 'gemini'>(openRouterConfigured ? 'openrouter' : 'gemini');
+ 
+   const messagesEndRef = useRef<HTMLDivElement>(null);
+-  const inputRef = useRef<HTMLInputElement>(null);
++  const inputRef = useRef<HTMLTextAreaElement>(null);
+ 
+   useEffect(() => {
+     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+@@ -307,21 +285,12 @@
+     }finally{setIsTyping(false);}
+   };
+ 
+-  const handleKeyDown = useCallback(
+-    (e: KeyboardEvent) => {
+-      if (e.key === 'Enter' && !e.shiftKey) {
+-        e.preventDefault();
+-        handleSend();
+-      }
+-    },
+-    [handleSend],
+-  );
+-
+   const handleReset = () => {
+     if(isTyping||history.loading||history.unsaved||history.status==='Saving…')return;
+     history.fresh();setInputValue('');setActiveSection('chat');setSidebarOpen(false);
+   };
+ 
++  useEffect(()=>{const start=(event:globalThis.KeyboardEvent)=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();handleReset();inputRef.current?.focus();}};window.addEventListener('keydown',start);return()=>window.removeEventListener('keydown',start);},[isTyping,history.loading,history.unsaved,history.status]);
+   const quickActions = getQuickActions(conversationState);
+ 
+   const modeLabel =
+@@ -337,26 +306,20 @@
+   };
+ 
+   const showWelcome = messages.length <= 1;
++  const composer = <div className={`conversation-composer ${showWelcome?'home-composer':''}`}>
++    <label className="sr-only" htmlFor="coach-message">Message Commerce Coach</label>
++    <div className="composer-field"><textarea id="coach-message" ref={inputRef} value={inputValue} onChange={event=>setInputValue(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();void handleSend();}}}
++      aria-label="Message Commerce Coach" placeholder={isTyping?'Preparing your answer…':'What would you like to figure out?'} disabled={isTyping} rows={showWelcome?3:2}/>
++      <div className="composer-bottom"><span><MessageSquare size={14}/>বাংলা or English</span><div><span className="send-hint"><CornerDownLeft size={12}/> to send</span><button aria-label="Send message" disabled={!inputValue.trim()||isTyping||history.loading||history.unsaved||history.status==='Saving…'||messages.length>=199} onClick={()=>void handleSend()}><ArrowUp size={20}/></button></div></div>
++    </div>{!showWelcome&&<p>Answers reference Commerce documentation. Verify details before making changes.</p>}
++  </div>;
++
+ 
+   return (
+     <div className="coach-layout">
+       {/* Sidebar */}
+       <div className={`coach-sidebar ${sidebarOpen?'is-open':''}`} id="coach-sidebar">
+-        <div className="sidebar-heading">
+-          <div className="flex items-center gap-3">
+-            <div className="sidebar-coach-icon">
+-              <Bot size={20} className="text-white" />
+-            </div>
+-            <div>
+-              <div className="sidebar-title">Your coach</div>
+-              <div className="text-[10px] text-gray-500 flex items-center gap-1.5">
+-                <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+-                {openRouterConfigured || geminiConfigured ? (aiProvider === 'openrouter' ? 'OpenRouter AI' : 'Gemini AI') : 'Knowledge Base'}
+-                {modeLabel && <span className="text-red-500 font-semibold">&middot; {modeLabel}</span>}
+-              </div>
+-            </div>
+-          </div>
+-
++        <div className="sidebar-heading"><div className="sidebar-workspace"><span>{user.organization_name.slice(0,1)}</span><div><strong>{user.organization_name}</strong><small>Commerce workspace</small></div></div>
+           {/* AI Provider Selector */}
+           {(geminiConfigured || openRouterConfigured) && (
+             <div className="px-3 mt-3">
+@@ -392,7 +355,8 @@
+           )}
+         </div>
+ 
+-        <div className="sidebar-modes">
++        <button className="new-conversation-button" disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'} onClick={handleReset}><Plus size={17}/>New chat<span>⌘ K</span></button>
++        <nav className="sidebar-modes" aria-label="Coach modes">
+           {SIDEBAR_ITEMS.filter(item => item.id !== 'learning' || user.role !== 'member').map((item) => {
+             const Icon = item.icon;
+             const isActive = activeSection === item.id;
+@@ -412,14 +376,14 @@
+                 <Icon size={16} className={isActive ? 'text-red-500' : ''} />
+                 <div>
+                   <div className="text-sm font-medium">{item.label}</div>
+-                  <div className="text-[10px] text-gray-400">{item.desc}</div>
++                  
+                 </div>
+               </button>
+             );
+           })}
+-        </div>
+-
+-        <div className="sidebar-history"><div className="history-heading"><h2>Conversations</h2><button title="New conversation" aria-label="New conversation" disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'} onClick={handleReset}><Plus size={17}/></button></div>
++        </nav>
++
++        <div className="sidebar-history"><div className="history-heading"><h2>Recent conversations</h2></div>
+           <label className="history-search"><Search size={14}/><input aria-label="Search conversations" placeholder="Find a conversation" value={historySearch} onChange={event=>setHistorySearch(event.target.value)}/></label>
+           <div className="history-list">{history.items.filter(item=>item.title.toLowerCase().includes(historySearch.toLowerCase())).map(item=><button key={item.id} className={history.id===item.id?'is-active':''} aria-current={history.id===item.id?'true':undefined} disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'} onClick={()=>{void history.open(item.id);setActiveSection('chat');setSidebarOpen(false);}}><span>{item.title}</span><small>{new Date(item.updated_at).toLocaleDateString(undefined,{month:'short',day:'numeric'})} · {new Date(item.updated_at).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</small></button>)}
+           {!history.items.length&&<p>Your saved chats will appear here.</p>}
+@@ -439,32 +403,17 @@
+           </div>
+         )}
+ 
+-        <div className="sidebar-footer">
+-          <button
+-            disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'}
+-            onClick={handleReset}
+-            className="new-conversation-button"
+-          >
+-            <RotateCcw size={13} />
+-            New Conversation
+-          </button>
+-          <div className="text-center text-[10px] text-gray-400">
+-            {aiProvider === 'openrouter' && openRouterConfigured
+-              ? 'Powered by OpenRouter AI'
+-              : aiProvider === 'gemini' && geminiConfigured
+-                ? 'Powered by Gemini AI'
+-                : 'Knowledge Base Only'}
+-          </div>
+-        </div>
++        <div className="sidebar-footer"><BookOpen size={15}/><span>{openRouterConfigured||geminiConfigured?'AI + Commerce documentation':'Commerce documentation'}</span></div>
++
+       </div>
+ 
+       {/* Chat Area */}
+       <div className="coach-main">
+         <div className="conversation-toolbar">
+           <button className="mobile-sidebar-toggle" aria-label="Toggle navigation" aria-expanded={sidebarOpen} aria-controls="coach-sidebar" onClick={()=>setSidebarOpen(!sidebarOpen)}><PanelLeft size={19}/></button>
+-          <div className="conversation-title"><strong>{activeSection==='learning'?'Review corrections':history.items.find(item=>item.id===history.id)?.title || 'New conversation'}</strong><span>{modeLabel || 'Ask, learn, and put it into practice'}</span></div>
++          <div className="conversation-title"><strong>{activeSection==='learning'?'Review corrections':history.items.find(item=>item.id===history.id)?.title || 'Chat'}</strong><span>{modeLabel || (showWelcome?'Your commerce assistant':'Private conversation')}</span></div>
+           <span role="status" className="save-status">{history.loading?'Loading…':history.status==='Saved'?<><Check size={13}/>Saved</>:history.status}</span>
+-          <button className="toolbar-new" title="New chat" aria-label="New chat" disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'} onClick={handleReset}><Plus size={17}/><span>New chat</span></button>
++          
+           {history.error&&<div role="alert" className="w-full text-xs text-red-700">{history.error} {history.unsaved&&<button disabled={isTyping} className="ml-2 underline" onClick={()=>void handleRetrySave()}>Retry saving</button>}</div>}
+           {messages.length>=199&&<p className="w-full text-xs text-gray-500">This conversation is full. Start a new chat to continue.</p>}
+         </div>
+@@ -474,7 +423,7 @@
+           <>
+         {/* Messages or Welcome */}
+         {showWelcome ? (
+-          <WelcomeScreen onSend={handleSend} />
++          <WelcomeScreen onSend={handleSend} composer={composer} name={user.name} />
+         ) : (
+           <div className="conversation-messages">
+             {messages.slice(1).map((msg) => (
+@@ -501,34 +450,8 @@
+           </div>
+         )}
+ 
+-        {/* Input */}
+-        <div className="conversation-composer">
+-          <div className="composer-field">
+-            <input
+-              ref={inputRef}
+-              type="text"
+-              value={inputValue}
+-              onChange={(e) => setInputValue(e.target.value)}
+-              onKeyDown={handleKeyDown}
+-              aria-label="Message Commerce Coach"
+-              placeholder={isTyping ? 'Coach is thinking…' : 'Ask your coach… বাংলা বা English'}
+-              disabled={isTyping}
+-              className="w-full bg-white border border-gray-200 rounded-2xl px-5 py-3.5 pr-14 text-sm text-gray-700 placeholder-gray-400 outline-none focus:border-red-300 focus:ring-2 focus:ring-red-100 transition-all disabled:opacity-50 shadow-sm"
+-            />
+-            <button
+-              aria-label="Send message"
+-              onClick={() => handleSend()}
+-              disabled={!inputValue.trim() || isTyping || history.loading || history.unsaved || history.status==='Saving…' || messages.length>=199}
+-              className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-xl text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-md"
+-              style={{ backgroundColor: getThemeColor(themeColor) }}
+-            >
+-              <Send size={16} />
+-            </button>
+-          </div>
+-          <p className="text-center text-[10px] text-gray-400 mt-2">
+-            Guides grounded in Commerce documentation. Check important details with your team.
+-          </p>
+-        </div>
++        {!showWelcome&&composer}
++
+           </>
+         )}
+       </div>
+--- a/commerce-coach/src/auth/AppShell.tsx
++++ b/commerce-coach/src/auth/AppShell.tsx
+@@ -1,15 +1,16 @@
+ import { useState } from 'react';
+-import { ArrowUpRight, ChevronDown, LogOut, MessageSquare, ShieldCheck, KeyRound } from 'lucide-react';
++import { ArrowUpRight, ChevronDown, LogOut, MessageSquare, ShieldCheck, KeyRound, Moon, Sun } from 'lucide-react';
+ import CommerceCoachPage from '../pages/CommerceCoachPage';
+ import { useAuth,PasswordForm } from './AuthContext';
+ import { UsersPanel } from './UsersPanel';
+ export function AppShell(){
+-  const {user,logout}=useAuth();const [page,setPage]=useState('coach');const [error,setError]=useState('');
++  const {user,logout}=useAuth();const [page,setPage]=useState('coach');const [error,setError]=useState('');const [dark,setDark]=useState(()=>document.documentElement.dataset.appearance==='dark'||(!document.documentElement.dataset.appearance&&window.matchMedia('(prefers-color-scheme: dark)').matches));
+   return <div className="app-shell"><header className="workspace-header">
+-    <a href="/" className="workspace-brand" aria-label="Commerce Coach home"><span className="brand-symbol"><ArrowUpRight size={19}/></span><strong>Commerce<span>Coach</span></strong></a>
++    <a href="/" className="workspace-brand" aria-label="Commerce Coach home"><span className="brand-symbol" aria-hidden="true">c</span><strong>Commerce<span>Coach</span></strong></a>
+     <span className="workspace-divider"/><span className="workspace-name">{user.organization_name}</span>
+     <nav className="workspace-nav" aria-label="Workspace"><button aria-current={page==='coach'?'page':undefined} onClick={()=>setPage('coach')}><MessageSquare size={15}/>Coach</button>{user.role==='admin'&&<button aria-current={page==='users'?'page':undefined} onClick={()=>setPage('users')}><ShieldCheck size={15}/>Team access</button>}</nav>
+-    <details className="account-menu"><summary><span className="account-avatar">{user.name.slice(0,1)}</span><span className="account-name">{user.name}<small>{user.role}</small></span><ChevronDown size={14}/></summary><div className="account-popover"><p>{user.email}</p><button onClick={event=>{setPage('password');event.currentTarget.closest('details')?.removeAttribute('open');}}><KeyRound size={15}/>Change password</button><button onClick={()=>void logout().catch(e=>setError(e.message))}><LogOut size={15}/>Sign out</button></div></details>
++    <button className="appearance-toggle" aria-label={dark?'Use light appearance':'Use dark appearance'} onClick={()=>{const next=!dark;setDark(next);document.documentElement.dataset.appearance=next?'dark':'light';try{localStorage.setItem('coach-appearance',next?'dark':'light');}catch{}}}>{dark?<Sun size={17}/>:<Moon size={17}/>}</button>
++    <details className="account-menu"><summary aria-label={`Account menu for ${user.name}`}><span className="account-avatar">{user.name.slice(0,1)}</span><span className="account-name">{user.name}<small>{user.role}</small></span><ChevronDown size={14}/></summary><div className="account-popover"><p>{user.email}</p><button onClick={event=>{setPage('password');event.currentTarget.closest('details')?.removeAttribute('open');}}><KeyRound size={15}/>Change password</button><button onClick={()=>void logout().catch(e=>setError(e.message))}><LogOut size={15}/>Sign out</button></div></details>
+   </header>{error&&<p role="alert" className="bg-red-50 p-3 text-red-700">{error}</p>}
+   <main className="min-h-0 flex-1">{page==='users'&&user.role==='admin'?<UsersPanel/>:page==='password'?<div className="grid h-full place-items-center bg-gray-50 p-6"><PasswordForm done={()=>window.dispatchEvent(new Event('coach-session-expired'))}/></div>:<CommerceCoachPage/>}</main></div>;
+ }
+--- a/commerce-coach/src/auth/AuthContext.tsx
++++ b/commerce-coach/src/auth/AuthContext.tsx
+@@ -59,7 +59,7 @@
+   const logout=async()=>{await api('/api/auth/logout',{});clear();};
+   if(loading)return <div className="grid min-h-dvh place-items-center text-gray-500">Loading Commerce Coach…</div>;
+   if(user?.must_change_password)return <div className="grid min-h-dvh place-items-center bg-gray-50 p-6"><div><p className="mb-4 text-center text-sm text-gray-600">Welcome, {user.name}. Set your own password to continue.</p><PasswordForm done={clear}/><button className="mt-4 text-sm text-red-700" onClick={()=>void logout().catch(e=>setError(e.message))}>Sign out</button>{error&&<p role="alert">{error}</p>}</div></div>;
+-  if(!user)return <div className="signin-layout"><aside className="signin-story"><div className="signin-wordmark">Commerce Coach</div><div><p>Your everyday Commerce companion</p><h2>A clearer way<br/>to get things done.</h2><span>Understand your orders. Set up your store. Build your confidence, one conversation at a time.</span></div><small>Made for your team. Ready for বাংলা and English.</small></aside><div className="signin-form-area"><form className="signin-form space-y-4" onSubmit={async event=>{
++  if(!user)return <div className="signin-layout"><aside className="signin-story"><div className="signin-wordmark">Commerce Coach</div><div><p>The Commerce playbook</p><h2>Know what to do next.</h2><span>Practical answers and step-by-step guides for running your store.</span></div><small>Made for your team. Ready for বাংলা and English.</small></aside><div className="signin-form-area"><form className="signin-form space-y-4" onSubmit={async event=>{
+     event.preventDefault();const data=new FormData(event.currentTarget);setBusy(true);setError('');
+     try{await api('/api/auth/login',{organization:data.get('organization'),email:data.get('email'),password:data.get('password')});await refresh();}
+     catch(e){setError((e as Error).message);}finally{setBusy(false);}
+--- a/commerce-coach/package.json
++++ b/commerce-coach/package.json
+@@ -23,6 +23,8 @@
+     "test:all": "npm test && npm run test:security"
+   },
+   "dependencies": {
++    "@fontsource-variable/noto-sans-bengali": "5.3.0",
++    "@fontsource-variable/outfit": "5.3.0",
+     "@google/genai": "^1.29.0",
+     "@tailwindcss/vite": "^4.1.14",
+     "@vitejs/plugin-react": "^5.0.4",
+--- a/commerce-coach/package-lock.json
++++ b/commerce-coach/package-lock.json
+@@ -8,6 +8,8 @@
+       "name": "commerce-coach",
+       "version": "1.0.0",
+       "dependencies": {
++        "@fontsource-variable/noto-sans-bengali": "5.3.0",
++        "@fontsource-variable/outfit": "5.3.0",
+         "@google/genai": "^1.29.0",
+         "@tailwindcss/vite": "^4.1.14",
+         "@vitejs/plugin-react": "^5.0.4",
+@@ -714,6 +716,24 @@
+       ],
+       "engines": {
+         "node": ">=18"
++      }
++    },
++    "node_modules/@fontsource-variable/noto-sans-bengali": {
++      "version": "5.3.0",
++      "resolved": "https://registry.npmjs.org/@fontsource-variable/noto-sans-bengali/-/noto-sans-bengali-5.3.0.tgz",
++      "integrity": "sha512-035m0mzOcsVC1GHFH1ioeXjIFqVhuflGvnn8Xvr6esaZlGErNe1d+Jx2sEN/2WGPhjrT+5wwKPPSO8rbBeQo3w==",
++      "license": "OFL-1.1",
++      "funding": {
++        "url": "https://github.com/sponsors/ayuhito"
++      }
++    },
++    "node_modules/@fontsource-variable/outfit": {
++      "version": "5.3.0",
++      "resolved": "https://registry.npmjs.org/@fontsource-variable/outfit/-/outfit-5.3.0.tgz",
++      "integrity": "sha512-fPb5XnYK0k7SbR++HEmm4+ZqDszmLKQ+sPRUr8oQ/KNC0vy6r6hazJFe8iYozv4cqlHbvJ/JECkJWrfDodUMVQ==",
++      "license": "OFL-1.1",
++      "funding": {
++        "url": "https://github.com/sponsors/ayuhito"
+       }
+     },
+     "node_modules/@google/genai": {

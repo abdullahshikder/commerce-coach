@@ -1,0 +1,477 @@
+--- package.json
++++ commerce-coach/package.json
+@@ -1,45 +1,38 @@
+ {
+-  "name": "react-example",
++  "name": "commerce-coach",
+   "private": true,
+-  "version": "0.0.0",
++  "version": "1.0.0",
+   "type": "module",
+   "scripts": {
+     "dev": "concurrently -n \"api,web\" -c \"yellow,cyan\" \"npm run server\" \"npm run client\"",
+-    "client": "vite --port=8000 --host=0.0.0.0",
+     "build": "vite build",
+-    "preview": "vite preview",
+-    "clean": "rm -rf dist",
+     "lint": "tsc --noEmit",
+-    "test": "tsx --test src/utils/b2bStore.test.ts src/utils/b2bMarketplace.test.ts src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts",
+-    "test:coach": "tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts",
+-    "coach:eval": "tsx scripts/evaluate-coach-workflows.ts",
+-    "embeddings:build": "tsx scripts/build-coach-embeddings.ts",
+-    "test:b2b": "tsx scripts/test-b2b-validation.ts",
+-    "server": "tsx server/index.ts"
++    "test:coach": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts",
++    "coach:eval": "node --import tsx scripts/evaluate-coach-workflows.ts",
++    "embeddings:build": "node --import tsx scripts/build-coach-embeddings.ts",
++    "server": "node --import tsx server/index.ts",
++    "client": "vite --host 0.0.0.0 --port 8010",
++    "start": "node --import tsx server/index.ts",
++    "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/app.test.ts",
++    "db:init": "node --import tsx scripts/init-db.ts",
++    "db:backup": "node --import tsx scripts/backup-db.ts",
++    "db:import": "node --import tsx scripts/import-feedback.ts"
+   },
+   "dependencies": {
+     "@google/genai": "^1.29.0",
+-    "@openrouter/sdk": "^1.2.93",
+     "@tailwindcss/vite": "^4.1.14",
+     "@vitejs/plugin-react": "^5.0.4",
+-    "axios": "^1.18.0",
+     "better-sqlite3": "^12.10.1",
+-    "cors": "^2.8.6",
+     "dotenv": "^17.2.3",
+     "express": "^4.21.2",
+     "lucide-react": "^0.546.0",
+-    "motion": "^12.23.24",
+-    "multer": "^2.2.0",
+     "react": "^19.0.1",
+     "react-dom": "^19.0.1",
+-    "react-router-dom": "^7.17.0",
+     "vite": "^6.2.3"
+   },
+   "devDependencies": {
+     "@types/better-sqlite3": "^7.6.13",
+-    "@types/cors": "^2.8.19",
+     "@types/express": "^4.17.21",
+-    "@types/multer": "^2.2.0",
+     "@types/node": "^22.14.0",
+     "autoprefixer": "^10.4.21",
+     "concurrently": "^10.0.3",
+@@ -47,5 +40,8 @@
+     "tsx": "^4.21.0",
+     "typescript": "~5.8.2",
+     "vite": "^6.2.3"
++  },
++  "engines": {
++    "node": ">=22.12.0"
+   }
+ }
+--- vite.config.ts
++++ commerce-coach/vite.config.ts
+@@ -1,28 +1,9 @@
++import { defineConfig, loadEnv } from 'vite';
++import react from '@vitejs/plugin-react';
+ import tailwindcss from '@tailwindcss/vite';
+-import react from '@vitejs/plugin-react';
+-import path from 'path';
+-import {defineConfig, loadEnv} from 'vite';
+-
+-export default defineConfig(({mode}) => {
+-  const env = loadEnv(mode, '.', '');
+-  return {
+-    plugins: [react(), tailwindcss()],
+-    define: {
+-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+-    },
+-    resolve: {
+-      alias: {
+-        '@': path.resolve(__dirname, '.'),
+-      },
+-    },
+-    server: {
+-      proxy: {
+-        '/api': {
+-          target: 'http://localhost:4000',
+-          changeOrigin: true,
+-        },
+-      },
+-      hmr: process.env.DISABLE_HMR !== 'true',
+-    },
+-  };
++export default defineConfig(({ mode }) => {
++  const env = loadEnv(mode, process.cwd(), '');
++  return { plugins: [react(), tailwindcss()], server: { strictPort: true, proxy: {
++    '/api': { target: `http://127.0.0.1:${env.PORT || 4010}`, changeOrigin: true },
++  } } };
+ });
+--- src/pages/CommerceCoachPage.tsx
++++ commerce-coach/src/pages/CommerceCoachPage.tsx
+@@ -1,5 +1,5 @@
++import { screenshotUrl } from '../coach/screenshotAssets';
+ import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
+-import { useApp } from '../contexts/AppContext';
+ import { getThemeColor } from '../utils/themeColors';
+ import { processMessage, processMessageLLM, getWelcomeMessage, getQuickActions, isGeminiAvailable, isOpenRouterAvailable, ChatMessage, ConversationState } from '../coach/responseEngine';
+ import { isGeminiAvailable as isGeminiConfig } from '../coach/geminiService';
+@@ -143,7 +143,7 @@
+   const hasFeature = message.metadata?.feature;
+   const screenshots = message.metadata?.screenshots ?? [];
+   const previewImages = screenshots.map((screenshot) => ({
+-    src: new URL(`../coach/screenshots/${screenshot.src}`, import.meta.url).href,
++    src: screenshotUrl(screenshot.src),
+     caption: screenshot.caption,
+   }));
+ 
+@@ -227,7 +227,7 @@
+                 >
+                   <div className="aspect-[16/9] overflow-hidden bg-slate-50">
+                     <img
+-                      src={new URL(`../coach/screenshots/${screenshot.src}`, import.meta.url).href}
++                      src={screenshotUrl(screenshot.src)}
+                       alt=""
+                       loading="lazy"
+                       decoding="async"
+@@ -254,8 +254,9 @@
+ }
+ 
+ export default function CommerceCoachPage() {
+-  const { state: appState } = useApp();
+-  const themeColor = appState.themeColor;
++  const themeColor = 'purple';
++  const geminiConfigured = isGeminiConfig();
++  const openRouterConfigured = isOpenRouterConfig();
+ 
+   const [messages, setMessages] = useState<ChatMessage[]>([]);
+   const [conversationState, setConversationState] = useState<ConversationState>({
+@@ -268,7 +269,7 @@
+   const [activeSection, setActiveSection] = useState('chat');
+   const [previewGallery, setPreviewGallery] = useState<{ images: { src: string; caption: string }[]; index: number } | null>(null);
+   const [zoom, setZoom] = useState(1);
+-  const [aiProvider, setAiProvider] = useState<'openrouter' | 'gemini'>('openrouter');
++  const [aiProvider, setAiProvider] = useState<'openrouter' | 'gemini'>(openRouterConfigured ? 'openrouter' : 'gemini');
+ 
+   const messagesEndRef = useRef<HTMLDivElement>(null);
+   const inputRef = useRef<HTMLInputElement>(null);
+@@ -315,7 +316,7 @@
+         setIsTyping(false);
+       }
+     },
+-    [inputValue, conversationState, isTyping, messages],
++    [inputValue, conversationState, isTyping, messages, aiProvider],
+   );
+ 
+   const handleKeyDown = useCallback(
+@@ -352,7 +353,7 @@
+   const showWelcome = messages.length <= 1;
+ 
+   return (
+-    <div className="flex h-[calc(100vh-8rem)] -m-6 bg-gray-50 rounded-none overflow-hidden border border-gray-200">
++    <div className="flex h-dvh bg-gray-50 rounded-none overflow-hidden border border-gray-200">
+       {/* Sidebar */}
+       <div className="w-60 bg-white border-r border-gray-100 flex flex-col shrink-0">
+         <div className="p-4 border-b border-gray-100">
+@@ -364,23 +365,23 @@
+               <div className="text-sm font-bold text-gray-900">Commerce Coach</div>
+               <div className="text-[10px] text-gray-500 flex items-center gap-1.5">
+                 <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+-                {aiProvider === 'openrouter' ? 'OpenRouter AI' : 'Gemini AI'}
++                {openRouterConfigured || geminiConfigured ? (aiProvider === 'openrouter' ? 'OpenRouter AI' : 'Gemini AI') : 'Knowledge Base'}
+                 {modeLabel && <span className="text-violet-500 font-semibold">&middot; {modeLabel}</span>}
+               </div>
+             </div>
+           </div>
+ 
+           {/* AI Provider Selector */}
+-          {(isGeminiConfig || isOpenRouterConfig) && (
++          {(geminiConfigured || openRouterConfigured) && (
+             <div className="px-3 mt-3">
+               <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                 <button
+                   onClick={() => setAiProvider('openrouter')}
+-                  disabled={!isOpenRouterConfig}
++                  disabled={!openRouterConfigured}
+                   className={`flex-1 text-[10px] font-medium py-1.5 rounded-md transition-all cursor-pointer ${
+                     aiProvider === 'openrouter'
+                       ? 'bg-white text-violet-700 shadow-sm'
+-                      : isOpenRouterConfig
++                      : openRouterConfigured
+                         ? 'text-gray-500 hover:text-gray-700'
+                         : 'text-gray-300 cursor-not-allowed'
+                   }`}
+@@ -389,11 +390,11 @@
+                 </button>
+                 <button
+                   onClick={() => setAiProvider('gemini')}
+-                  disabled={!isGeminiConfig}
++                  disabled={!geminiConfigured}
+                   className={`flex-1 text-[10px] font-medium py-1.5 rounded-md transition-all cursor-pointer ${
+                     aiProvider === 'gemini'
+                       ? 'bg-white text-violet-700 shadow-sm'
+-                      : isGeminiConfig
++                      : geminiConfigured
+                         ? 'text-gray-500 hover:text-gray-700'
+                         : 'text-gray-300 cursor-not-allowed'
+                   }`}
+@@ -456,9 +457,9 @@
+             New Conversation
+           </button>
+           <div className="text-center text-[10px] text-gray-400">
+-            {aiProvider === 'openrouter' && isOpenRouterConfig
++            {aiProvider === 'openrouter' && openRouterConfigured
+               ? 'Powered by OpenRouter AI'
+-              : aiProvider === 'gemini' && isGeminiConfig
++              : aiProvider === 'gemini' && geminiConfigured
+                 ? 'Powered by Gemini AI'
+                 : 'Knowledge Base Only'}
+           </div>
+--- server/routes/coach.ts
++++ commerce-coach/server/routes/coach.ts
+@@ -1,4 +1,5 @@
+ import 'dotenv/config';
++import { timingSafeEqual } from 'node:crypto';
+ import { Router, type Request, type Response } from 'express';
+ import { getCoachEmbeddingConfig } from '../coach/config';
+ import { OpenRouterEmbeddingProvider } from '../coach/openrouterEmbeddingProvider';
+@@ -66,13 +67,14 @@
+ }
+ 
+ function requireReviewer(request: Request, response: Response): string | undefined {
+-  const reviewerId = readString(request.headers['x-user-id'], 200);
+-  const role = readString(request.headers['x-user-role'], 50);
+-  if (!reviewerId || (role !== 'internal' && role !== 'admin')) {
+-    response.status(403).json({ error: 'Internal reviewer access is required.' });
++  const expected = process.env.COACH_REVIEW_TOKEN;
++  const supplied = request.headers.authorization?.replace(/^Bearer /, '');
++  if (!expected || !supplied || Buffer.byteLength(expected) !== Buffer.byteLength(supplied)
++      || !timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) {
++    response.status(403).json({ error: 'A valid reviewer token is required.' });
+     return undefined;
+   }
+-  return reviewerId;
++  return 'standalone-reviewer';
+ }
+ 
+ function isRateLimited(request: Request): boolean {
+--- server/coach/imageEmbeddingSources.ts
++++ commerce-coach/server/coach/imageEmbeddingSources.ts
+@@ -10,7 +10,7 @@
+ import { fingerprintEmbeddingDocuments } from './snapshotStore';
+ 
+ export const DEFAULT_COACH_SCREENSHOT_IMAGE_DIRECTORY = fileURLToPath(
+-  new URL('../../product memo/images/', import.meta.url),
++  new URL('../../src/coach/screenshots/', import.meta.url),
+ );
+ 
+ const MIME_TYPES_BY_EXTENSION: Record<string, EmbeddingImageMimeType> = {
+--- src/coach/CoachFeedbackReviewPanel.tsx
++++ commerce-coach/src/coach/CoachFeedbackReviewPanel.tsx
+@@ -7,7 +7,6 @@
+   ShieldCheck,
+   XCircle,
+ } from 'lucide-react';
+-import { useIssueAuth } from '../tickets/IssueAuthContext';
+ import {
+   listCoachFeedback,
+   reviewCoachFeedback,
+@@ -23,15 +22,15 @@
+ };
+ 
+ export function CoachFeedbackReviewPanel() {
+-  const { user, isInternal } = useIssueAuth();
++  const [token, setToken] = useState('');
++  const [draftToken, setDraftToken] = useState('');
++  const isInternal = Boolean(token);
+   const [items, setItems] = useState<CoachFeedbackRecord[]>([]);
+   const [isLoading, setIsLoading] = useState(false);
+   const [reviewingId, setReviewingId] = useState<string>();
+   const [error, setError] = useState('');
+ 
+-  const reviewer = user && (user.role === 'internal' || user.role === 'admin')
+-    ? { id: user.id, role: user.role } satisfies CoachFeedbackReviewer
+-    : undefined;
++  const reviewer: CoachFeedbackReviewer | undefined = token ? { id: 'reviewer', role: 'admin', token } : undefined;
+ 
+   const loadQueue = useCallback(async () => {
+     if (!reviewer) return;
+@@ -44,7 +43,7 @@
+     } finally {
+       setIsLoading(false);
+     }
+-  }, [reviewer?.id, reviewer?.role]);
++  }, [reviewer?.token]);
+ 
+   useEffect(() => {
+     void loadQueue();
+@@ -74,13 +73,17 @@
+             Anyone can report a bad answer. Only an internal reviewer or admin can approve a correction,
+             so feedback never changes Coach by itself.
+           </p>
++          <form className="mt-4 flex gap-2" onSubmit={(event) => { event.preventDefault(); setToken(draftToken.trim()); }}>
++            <input aria-label="Reviewer token" type="password" value={draftToken} onChange={(event) => setDraftToken(event.target.value)} placeholder="Reviewer token" className="min-w-0 flex-1 rounded border p-2" required />
++            <button className="rounded bg-violet-600 px-3 text-white">Unlock</button>
++          </form>
+         </div>
+       </div>
+     );
+   }
+ 
+   return (
+-    <div className="flex-1 overflow-y-auto p-6">
++    <div className="flex-1 overflow-y-auto p-6"><button className="mb-3 text-sm text-violet-700" onClick={() => { setToken(''); setDraftToken(''); setItems([]); }}>Lock review access</button>
+       <div className="mx-auto max-w-4xl">
+         <div className="mb-5 flex items-start justify-between gap-4">
+           <div>
+--- src/coach/feedback.ts
++++ commerce-coach/src/coach/feedback.ts
+@@ -35,6 +35,7 @@
+ }
+ 
+ export interface CoachFeedbackReviewer {
++  token: string;
+   id: string;
+   role: 'internal' | 'admin';
+ }
+@@ -59,8 +60,7 @@
+ function reviewerHeaders(reviewer: CoachFeedbackReviewer): HeadersInit {
+   return {
+     'Content-Type': 'application/json',
+-    'x-user-id': reviewer.id,
+-    'x-user-role': reviewer.role,
++    Authorization: `Bearer ${reviewer.token}`,
+   };
+ }
+ 
+--- src/coach/SidebarChatPanel.tsx
++++ commerce-coach/src/coach/SidebarChatPanel.tsx
+@@ -1,6 +1,6 @@
++import { screenshotUrl } from './screenshotAssets';
+ import { useState, useRef, useEffect } from 'react';
+ import { X, Bot, Send, BookOpen, Sparkles, AlertTriangle, HelpCircle, ChevronRight, RotateCcw } from 'lucide-react';
+-import { useApp } from '../contexts/AppContext';
+ import { getThemeColor, getThemeLightColor, getThemeBorderColor, getThemeHoverColor } from '../utils/themeColors';
+ import { processMessage, processMessageLLM, getWelcomeMessage, getQuickActions, ChatMessage, ConversationState } from './responseEngine';
+ import { isGeminiAvailable as isGeminiConfig } from './geminiService';
+@@ -89,10 +89,10 @@
+                     <span className="text-[9px] text-gray-500 font-medium">{screenshot.caption}</span>
+                   </div>
+                   <img
+-                    src={new URL(`./screenshots/${screenshot.src}`, import.meta.url).href}
++                    src={screenshotUrl(screenshot.src)}
+                     alt={screenshot.caption}
+                     className="w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+-                    onClick={() => window.open(new URL(`./screenshots/${screenshot.src}`, import.meta.url).href, '_blank')}
++                    onClick={() => window.open(screenshotUrl(screenshot.src), '_blank')}
+                     onError={(e) => {
+                       const target = e.target as HTMLImageElement;
+                       target.style.display = 'none';
+@@ -171,8 +171,7 @@
+ }
+ 
+ export default function SidebarChatPanel({ isOpen, onClose }: Props) {
+-  const { state: appState, triggerToast } = useApp();
+-  const { themeColor } = appState;
++  const themeColor = 'purple';
+   const tc = getThemeColor(themeColor);
+   const tl = getThemeLightColor(themeColor);
+ 
+@@ -265,7 +264,7 @@
+       quizScore: { correct: 0, total: 0 },
+       quizHistory: [],
+     });
+-    triggerToast('Chat reset.', 'info');
++
+   };
+ 
+   const modeLabel = conversationState.mode === 'training' ? 'Training' :
+--- src/coach/PathaoCoachChatBot.tsx
++++ commerce-coach/src/coach/PathaoCoachChatBot.tsx
+@@ -1,5 +1,5 @@
++import { screenshotUrl } from './screenshotAssets';
+ import React, { useState, useRef, useEffect, useCallback } from 'react';
+-import { useApp } from '../contexts/AppContext';
+ import {
+   getThemeColor,
+   getThemeLightColor,
+@@ -185,10 +185,10 @@
+                     <span className="text-[10px] text-gray-500 font-medium">{screenshot.caption}</span>
+                   </div>
+                   <img
+-                    src={new URL(`./screenshots/${screenshot.src}`, import.meta.url).href}
++                    src={screenshotUrl(screenshot.src)}
+                     alt={screenshot.caption}
+                     className="w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+-                    onClick={() => window.open(new URL(`./screenshots/${screenshot.src}`, import.meta.url).href, '_blank')}
++                    onClick={() => window.open(screenshotUrl(screenshot.src), '_blank')}
+                     onError={(e) => {
+                       const target = e.target as HTMLImageElement;
+                       target.style.display = 'none';
+@@ -283,8 +283,7 @@
+ // ---------------------------------------------------------------------------
+ 
+ export default function PathaoCoachChatBot() {
+-  const { state: appState } = useApp();
+-  const themeColor = appState.themeColor;
++  const themeColor = 'purple';
+ 
+   const [isOpen, setIsOpen] = useState(false);
+   const [messages, setMessages] = useState<ChatMessage[]>([]);
+--- src/coach/screenshots/manifest.test.ts
++++ commerce-coach/src/coach/screenshots/manifest.test.ts
+@@ -12,7 +12,7 @@
+ } from './manifest';
+ 
+ const memoImagesDirectory = fileURLToPath(
+-  new URL('../../../product memo/images/', import.meta.url),
++  new URL('./', import.meta.url),
+ );
+ 
+ test('indexes every Product Memo image and avoids duplicates within a guide', () => {
+--- src/coach/geminiService.ts
++++ commerce-coach/server/coach/geminiService.ts
+@@ -1,13 +1,13 @@
+ import { GoogleGenAI, type Content } from '@google/genai';
+-import { TOOL_DECLARATIONS, executeTool, type ToolResult } from './llmTools';
+-import { buildKnowledgeBasePrompt } from './knowledgeBase';
+-import type { ChatMessage, ConversationState } from './responseEngine';
++import { TOOL_DECLARATIONS, executeTool, type ToolResult } from '../../src/coach/llmTools';
++import { buildKnowledgeBasePrompt } from '../../src/coach/knowledgeBase';
++import type { ChatMessage, ConversationState } from '../../src/coach/responseEngine';
+ 
+ // ---------------------------------------------------------------------------
+ // Gemini Client
+ // ---------------------------------------------------------------------------
+ 
+-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
++const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+ 
+ let genAI: GoogleGenAI | null = null;
+ 
+--- src/coach/openrouterService.ts
++++ commerce-coach/server/coach/openrouterService.ts
+@@ -1,12 +1,12 @@
+-import { TOOL_DECLARATIONS, executeTool, type ToolResult } from './llmTools';
+-import { buildKnowledgeBasePrompt } from './knowledgeBase';
+-import type { ChatMessage, ConversationState } from './responseEngine';
++import { TOOL_DECLARATIONS, executeTool, type ToolResult } from '../../src/coach/llmTools';
++import { buildKnowledgeBasePrompt } from '../../src/coach/knowledgeBase';
++import type { ChatMessage, ConversationState } from '../../src/coach/responseEngine';
+ 
+ // ---------------------------------------------------------------------------
+ // OpenRouter Client (OpenAI-compatible)
+ // ---------------------------------------------------------------------------
+ 
+-const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || '';
++const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+ const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+ 
+ // ---------------------------------------------------------------------------
+@@ -258,7 +258,7 @@
+   retrievalContext?: string,
+ ): Promise<LLMResponse> {
+   if (!OPENROUTER_API_KEY) {
+-    return { content: 'OpenRouter API key is not configured. Please set VITE_OPENROUTER_API_KEY in your .env file.' };
++    return { content: 'OpenRouter API key is not configured. Please set OPENROUTER_API_KEY in your .env file.' };
+   }
+ 
+   try {

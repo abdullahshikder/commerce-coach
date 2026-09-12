@@ -1,0 +1,63 @@
+{
+  "name": "commerce-coach",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n \"api,web\" -c \"yellow,cyan\" \"npm run server\" \"npm run client\"",
+    "build": "vite build",
+    "lint": "tsc --noEmit",
+    "test:coach": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/screenContext.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/knowledgeMirror.test.ts server/coach/pgQueryStore.test.ts server/coach/pgAnalyticsStore.test.ts server/coach/documents.test.ts server/coach/okf.test.ts server/coach/library.test.ts server/coach/production.test.ts src/coach/modes.test.ts server/coach/generatedConversation.test.ts server/coach/conversationEvaluation.test.ts",
+    "coach:eval": "node --import tsx scripts/evaluate-coach-workflows.ts",
+    "embeddings:build": "node --import tsx scripts/build-coach-embeddings.ts",
+    "server": "node --watch --import tsx server/index.ts",
+    "client": "vite --host 127.0.0.1 --port 8010",
+    "start": "node --import tsx server/index.ts",
+    "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/screenContext.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/knowledgeMirror.test.ts server/coach/pgQueryStore.test.ts server/coach/pgAnalyticsStore.test.ts server/coach/documents.test.ts server/coach/okf.test.ts server/coach/library.test.ts server/coach/production.test.ts src/coach/modes.test.ts server/coach/generatedConversation.test.ts server/coach/conversationEvaluation.test.ts",
+    "db:init": "node --import tsx scripts/init-db.ts",
+    "db:backup": "node --import tsx scripts/backup-db.ts",
+    "db:import": "node --import tsx scripts/import-feedback.ts",
+    "db:sync-knowledge": "node --import tsx scripts/sync-coach-knowledge.ts",
+    "db:migrate": "node --import tsx scripts/migrate.ts",
+    "admin:create": "node --import tsx scripts/create-admin.ts",
+    "test:security": "node --import tsx --test server/security.test.ts",
+    "test:all": "npm test && npm run test:security",
+    "knowledge:export-okf": "node --import tsx scripts/export-knowledge-okf.ts",
+    "production:check": "node --import tsx scripts/provider-readiness.ts",
+    "db:restore-drill": "node --import tsx scripts/restore-drill.ts",
+    "verify": "npm run lint && npm test && npm run coach:eval && npm run build",
+    "coach:eval:conversations": "node --import tsx scripts/evaluate-coach-conversations.ts"
+  },
+  "dependencies": {
+    "@fontsource-variable/noto-sans-bengali": "5.3.0",
+    "@fontsource-variable/outfit": "5.3.0",
+    "@google/genai": "^1.29.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "better-sqlite3": "^12.10.1",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "google-auth-library": "10.6.2",
+    "lucide-react": "^0.546.0",
+    "pg": "^8.23.0",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^6.2.3",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "@types/pg": "^8.23.1",
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^10.0.3",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

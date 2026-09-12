@@ -1,0 +1,29 @@
+name: Verify Commerce Coach
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    container: node:22-bookworm
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_ADMIN_URL: postgresql://postgres:ci-only-password@postgres:5432/postgres
+      DOCUMENT_WORKER: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm test
+      - run: npm run coach:eval
+      - run: npm run build
+      - run: npm run test:security

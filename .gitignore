@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+data/*
+!data/.gitkeep
+*.log
+/deploy/secrets/
+/deploy/production.env
+/backups/
+*.dump
+*.partial

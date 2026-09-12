@@ -1,0 +1,1715 @@
+--- before/commerce-coach/ARCHITECTURE.md
++++ after/commerce-coach/ARCHITECTURE.md
+@@ -1,13 +1,19 @@
+ # Architecture
+ 
+-`src/main.tsx` loads provider availability from `/api/config`, then renders the independent `CommerceCoachPage`. `src/coach/` owns local knowledge, intent routing, canonical workflows, visual references, training/quiz logic, and UI. `screenshotAssets.ts` includes only image files in the browser build.
++The React entry point renders `AuthProvider`, which restores a cookie session before showing `AppShell`. Sign-in and mandatory password changes gate the Coach. `AppShell` exposes Team access only to admins; `CommerceCoachPage` exposes Learning to reviewers/admins. `src/auth/client.ts` attaches the CSRF token and handles revoked/expired sessions. UI visibility improves usability; Express and PostgreSQL enforce authorization independently.
+ 
+-Known English/Bangla workflow intents render directly from the approved registry. Other questions retrieve grounded passages through `/api/coach/retrieve`, then call `/api/coach/generate` when a provider is configured. Provider clients and keys live under `server/coach/`; the browser contains only thin HTTP adapters. Missing providers retain local deterministic behavior.
++Express serves the frontend and authenticated `/api` routes. `/api/auth/login` and a minimal health endpoint are public. Authenticated `/api/auth/me`, logout, and password-change routes remain available to accounts required to change a temporary password; other APIs require completed password setup. `/api/users` requires admin; organization feedback review requires reviewer/admin. AI credentials remain server-only.
+ 
+-`server/app.ts` composes Express routes, validates generation requests, bounds generation traffic, and serves the production `dist/` build. `server/index.ts` owns listening and shutdown. Development uses Vite on 8010 with an API proxy to Express on 4010.
++`server/db.ts` uses a restricted data login belonging to `coach_app` and a separate authentication pool belonging to `coach_auth`. Only the authentication pool can look up password hashes and create sessions; it cannot directly read feedback. Startup refuses ownership, superuser, CREATEROLE, BYPASSRLS, elevated memberships, and missing/disabled RLS. Each private-data operation uses one pooled connection and a transaction-local session hash. Commit/rollback clears context before connection reuse. The migration-owner connection is used only by offline administrative commands, not by web handlers.
+ 
+-`server/db.ts` lazily opens the independent `data/coach.db`, enables WAL and a busy timeout, and applies the additive feedback schema/migration in `server/coach/feedbackStore.ts`. No dashboard tables or users are required. Feedback submissions are public to app users; listing and review require a server-verified shared bearer token. Approval records evidence and never modifies knowledge automatically.
++`coach_private` holds organizations, per-organization user accounts, and hashed sessions. The runtime role has no direct table access. Narrow SECURITY DEFINER functions with fixed search paths expose authentication and organization-scoped administration. `coach_actor()` validates session existence/expiry and current account status on each operation. Password hashing is performed by Node’s asynchronous scrypt implementation; hashes, sessions, and role assertions never come from browser-controlled authorization headers.
+ 
+-`server/coach/imageEmbeddingSources.ts` reads bundled `src/coach/screenshots/` directly. Offline embedding generation fingerprints these images and the knowledge records, writes an atomic JSON snapshot, and runtime retrieval combines it with lexical ranking. Missing keys, stale snapshots, or provider errors fall back to lexical retrieval.
++`public.coach_feedback` has ENABLE/FORCE ROW LEVEL SECURITY. Members see only their own rows. Reviewers/admins see their organization’s rows. Inserts must match the actor’s organization/user, while a trigger prevents ownership changes and non-reviewer approval. No runtime DELETE/TRUNCATE/schema privileges are granted. Organization and user identity is derived from the stored session, not from configurable tenant/role strings. Auth-table access uses scoped database functions instead of exposing credential rows to SQL clients.
+ 
+-The source directory, dependencies, runtime data, and build are independent of the parent app. Docker persists runtime data in a named volume. Chat conversation state remains in browser memory, matching the original Coach behavior.
++Password changes, role changes, account disabling, and password resets revoke sessions. User changes serialize on the organization to preserve the last active admin. Login session creation locks the user row to serialize against credential changes. Sessions expire after 12 hours; cookies are HttpOnly/SameSite=Strict and Secure in production; write APIs validate CSRF and origin. There is no public signup, email reset, SSO, or MFA.
++
++Coach knowledge/intent routing, deterministic English/Bangla workflows, tools, screenshots, and embedding snapshots remain provider-neutral shared content. They contain no tenant data. Unregistered questions use authenticated retrieval and server-side OpenRouter/Gemini generation; local knowledge remains available without provider keys. Conversation state is in browser memory. Feedback is the private persistent application data.
++
++`server/migrations/001_security.sql` is idempotent and applied through `db:migrate`. SQLite is used only by the retained legacy schema tests and one-time import tool. Docker separates database, migration, and application services; PostgreSQL and embeddings use distinct named volumes.
++
++Security references: [PostgreSQL RLS](https://www.postgresql.org/docs/17/ddl-rowsecurity.html), [SECURITY DEFINER precautions](https://www.postgresql.org/docs/17/sql-createfunction.html), [node-postgres transactions](https://node-postgres.com/features/transactions), [Node crypto](https://nodejs.org/api/crypto.html).
+--- before/commerce-coach/README.md
++++ after/commerce-coach/README.md
+@@ -1,101 +1,120 @@
+ # Commerce Coach
+ 
+-Standalone React + Vite frontend, Express backend, and SQLite database extracted from the Pathao merchant dashboard. Copy this folder anywhere; it has no imports, services, login, or database dependencies on the dashboard.
++Standalone React/Vite frontend and Express backend with individual authentication, organization-scoped RBAC, and **native PostgreSQL row-level security**. PostgreSQL replaces SQLite for runtime data; the original SQLite file is retained for import and rollback.
+ 
+-## Run locally
++## This workspace
+ 
+-Use Node.js 22.12+ (Node 22 LTS recommended) and npm.
++The local PostgreSQL cluster has been initialized under `data/postgres-runtime`, listening only on `127.0.0.1:55432`. The app’s separate restricted data/authentication database connections is in the private `.env` file. Two existing Coach feedback records were imported into the `pathao` organization.
+ 
+ ```sh
+ npm ci
+-cp .env.example .env
+ npm run dev
+ ```
+ 
+-Open http://localhost:8010. The API runs on http://localhost:4010. For the production build:
++Open http://localhost:8010, or run `npm run build` then `npm start` and open http://localhost:4010. Local first-sign-in details are in **`data/initial-admin.txt`**, readable only by the local user. Change the temporary password at first sign-in and delete that file afterward. Credentials, PostgreSQL cluster files, and session data are excluded from the distributable ZIP.
++
++If the local database is stopped, start it from this folder with:
+ 
+ ```sh
++pg_ctl -D data/postgres-runtime -l /tmp/coach-postgres.log -o '-p 55432 -h 127.0.0.1 -k /tmp' start
++```
++
++## Roles and isolation
++
++| Capability | Member | Reviewer | Admin |
++| --- | --- | --- | --- |
++| Use Coach, training, quiz, and screenshots | Yes | Yes | Yes |
++| Submit feedback and read own submissions | Yes | Yes | Yes |
++| Read and review organization feedback | No | Yes | Yes |
++| Create users, change roles, disable accounts, reset passwords | No | No | Yes |
++| Access another organization’s private records | No | No | No |
++
++Admins use **Team access** to create users with temporary passwords, assign roles, disable accounts, and reset credentials. New/reset accounts must change their password before using Coach. Admins cannot remove the last active admin. Each account belongs to one organization; the same email may have separate accounts in different organizations.
++
++- Passwords use salted scrypt hashes. Sessions use random opaque tokens; only their SHA-256 hashes are stored in PostgreSQL.
++- Session cookies are HttpOnly and SameSite=Strict, expire after 12 hours, and are Secure in production. Use HTTPS for deployed environments.
++- State-changing requests require an allowed Origin, a custom request header, and an authenticated CSRF token. Login has origin/header checks and rate limiting; password work has concurrency limits.
++- Logout and password changes revoke sessions. Role changes, disabling, and admin password resets also revoke the affected user’s sessions.
++- PostgreSQL enables and forces RLS on `public.coach_feedback`. Reads, inserts, and updates resolve identity from the current live session; forged user/role/tenant headers are ignored. A database trigger protects ownership and review-only fields.
++- Authentication tables are in `coach_private`, inaccessible to the runtime role. Narrow SQL functions implement scoped authentication and user administration; password hashes are never returned to the frontend.
++- Login verification has a separate database login/pool. The data role cannot read credential tables or call the functions that create sessions.
++- The app refuses database superusers, table owners, CREATEROLE/BYPASSRLS users, and memberships that can inherit elevated privileges.
++
++The curated product knowledge and screenshots are shared application content bundled in the frontend. Conversation and quiz state stay in browser memory. Private feedback and account data are persisted and isolated. Approval records a review decision; it never rewrites knowledge automatically.
++
++## New installation with PostgreSQL
++
++Requirements: Node.js 22.12+, npm, and PostgreSQL 17+ (local checks also passed on PostgreSQL 18). Use a dedicated database and migration owner; do not point this application at an unrelated database.
++
++1. Copy `.env.example` to `.env`. Set `DATABASE_URL` to a new data login such as `coach_runtime`, and `AUTH_DATABASE_URL` to a different authentication login such as `coach_login`. Give each a different random URL-safe password of at least 20 characters. Set `APP_ORIGINS` to the exact frontend origins, including scheme and port.
++2. Provide `MIGRATION_DATABASE_URL` only to administrative commands. Its owner needs schema/role creation privileges. `npm run db:migrate` creates the schema, restricted data/authentication logins, grants, and RLS policies. Re-running is safe.
++3. Create the first organization admin using a private password file:
++
++```sh
++npm run db:migrate
++npm run admin:create -- pathao "Pathao" admin@example.com /private/path/temporary-password.txt
++npm run db:init
+ npm run build
+ npm start
+ ```
+ 
+-Open http://localhost:4010; Express serves both the frontend and API. The database initializes automatically. `PORT` changes the API port and the Vite proxy target. `HOST` defaults to loopback for local use.
++Set `MIGRATION_DATABASE_URL` in the environment of the first two commands; keep it out of the web process. In this prepared workspace, local administrative configuration is in `data/admin.env`; use `DOTENV_CONFIG_PATH=data/admin.env npm run db:migrate` or the same prefix for other admin commands. That private file is excluded from the ZIP.
+ 
+-## Included
++There is no public registration or automatic organization joining. An organization admin provisions members; a database operator uses `admin:create` to provision another organization. Password reset is admin-mediated; email reset, MFA, and SSO are not implemented.
+ 
+-- Full-page chat, training, quizzes, troubleshooting, merchant simulation, intent detection, and English/Bangla canonical workflows.
+-- 125 knowledge passages and 114 original screenshot assets with image previews.
+-- OpenRouter and Gemini generation through server endpoints; API keys never enter the frontend build.
+-- Hybrid semantic/lexical retrieval, offline embedding build tools, and deterministic workflow evaluations.
+-- SQLite feedback collection, correction review, schema initialization, backups, and imports.
+-- Floating and sidebar Coach components retained in `src/coach/` for future embedding. The standalone entry point uses the full-page Coach.
+-- Dockerfile, Compose configuration with a persistent data volume, lockfile, and automated tests.
++## AI configuration
+ 
+-## Configuration
++Add optional `OPENROUTER_API_KEY` and/or `GEMINI_API_KEY` to the server environment. Keys stay off the frontend. All AI and retrieval endpoints require sign-in. Without keys, signed-in users can use local knowledge, canonical English/Bangla workflows, training, quizzes, screenshots, and feedback.
+ 
+-Edit `.env`:
+-
+-| Variable | Purpose |
+-| --- | --- |
+-| `OPENROUTER_API_KEY` | Optional OpenRouter chat and semantic retrieval |
+-| `GEMINI_API_KEY` | Optional Gemini chat |
+-| `COACH_REVIEW_TOKEN` | Shared reviewer token for the Learning screen; empty disables review access |
+-| `COACH_DB_PATH` | SQLite location; defaults to `data/coach.db` |
+-| `COACH_EMBEDDING_SNAPSHOT` | Snapshot location; defaults to `data/coach-embeddings.json` |
+-| `PORT` / `HOST` | Backend listener; defaults to `4010` / `127.0.0.1` |
+-
+-Generate a reviewer token with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`, put it in `.env`, restart the server, and enter it in Learning. The browser holds the token in memory only. Review decisions use the shared identity `standalone-reviewer`; use individual authenticated accounts if you need per-person auditing.
+-
+-No keys are required for local knowledge, training, quizzes, canonical workflows, screenshots, and feedback submission. Semantic retrieval needs both an OpenRouter key and a current snapshot. If either is missing, retrieval falls back to lexical matching. Chat history and quiz state are in-memory and reset on reload; SQLite persists feedback and review decisions.
+-
+-## Database and existing data
+-
+-This local package includes a Coach-only `data/coach.db` copied from the original app's feedback table (2 records at extraction), plus its existing 239-vector snapshot. Merchant, parcel, and ticket tables and API credentials are excluded. Treat the package as internal: feedback may contain user-entered text. `data/` is ignored by Git and Docker builds.
+-
+-On a fresh source checkout, startup creates an empty database. To import feedback from a dashboard database:
+-
+-```sh
+-npm run db:import -- /absolute/path/to/merchant.db
+-```
+-
+-The source is opened read-only. Only `coach_feedback` records are copied, and existing IDs/response IDs are preserved without overwrite. Initialize or back up independently:
+-
+-```sh
+-npm run db:init
+-npm run db:backup -- /absolute/path/to/coach-backup.db
+-```
+-
+-Backup uses SQLite's online backup API so committed WAL data is included. To restore, stop the app, back up the current database, remove its old `-wal` and `-shm` sidecars, and replace `data/coach.db` with the backup. Keep backups outside the application folder.
+-
+-## Embeddings and knowledge updates
++The package includes the existing current 239-vector snapshot (125 knowledge passages and 114 screenshot vectors). Semantic retrieval requires an OpenRouter key and a current snapshot; otherwise it uses lexical retrieval.
+ 
+ ```sh
+ npm run coach:eval
+ npm run embeddings:build
+ ```
+ 
+-Rebuilding sends knowledge and screenshots to OpenRouter and requires the server API key. It runs workflow evaluations before making provider calls. The snapshot fingerprints knowledge and screenshot bytes. Inspect `/api/coach/embeddings/status` for readiness. Approved feedback does not automatically rewrite product facts: edit `src/coach/workflows/registry.ts`, update regressions, run evaluation, then rebuild embeddings.
++Rebuilding sends the curated knowledge/screenshots to OpenRouter and may incur API charges. Known workflow changes belong in `src/coach/workflows/registry.ts`; run the evaluations before rebuilding. The snapshot contains shared knowledge, never organization feedback.
++
++## Import and backup
++
++The source ZIP includes the legacy `data/coach.db` with its two original feedback records, for migration only. It contains user-entered feedback and should be treated as internal data. It contains no accounts or credentials.
++
++```sh
++npm run db:import -- /path/to/coach.db pathao admin@example.com
++npm run db:backup -- /private/path/coach.dump
++```
++
++Both commands require `MIGRATION_DATABASE_URL`. Import opens SQLite read-only, explicitly assigns records to the chosen organization/user, preserves legacy reviewer attribution in the review note, and skips existing records. PostgreSQL RLS is restored before the import transaction commits. The original SQLite file remains unchanged.
++
++Backup uses `pg_dump` in custom format with the owner connection, ensuring all organizations are included. Backups contain sensitive accounts/session hashes and feedback: store them privately. Restore into a separate empty database using `pg_restore --no-owner`, then rerun `db:migrate` with the intended migration owner and runtime login. Keep the old database until restoration and RLS tests pass.
+ 
+ ## Docker
++
++Set three different random URL-safe passwords in `.env`: `POSTGRES_PASSWORD` for the owner, `COACH_DB_PASSWORD` for data access, and `COACH_AUTH_PASSWORD` for login verification. Set `APP_ORIGINS` to your frontend origin.
+ 
+ ```sh
+ docker compose up --build -d
+ ```
+ 
+-Open http://localhost:4010. Compose loads credentials from `.env` into the server, and keeps the database/snapshot in the `coach-data` volume. The container starts with an empty database because local runtime data is excluded from image layers. To bring over the packaged data:
++Compose starts PostgreSQL, runs a separate migration service, then starts the web app. Only the migration service receives the database owner connection. PostgreSQL has no published host port; the web port binds to loopback. Put an HTTPS reverse proxy in front for deployment.
++
++Create an administrator through the administrative service, passing the temporary password on stdin:
+ 
+ ```sh
+-docker compose stop coach
+-docker compose cp data/coach.db coach:/app/data/coach.db
+-docker compose cp data/coach-embeddings.json coach:/app/data/coach-embeddings.json
+-docker compose start coach
++docker compose run --rm -T migrate npm run admin:create -- pathao "Pathao" admin@example.com /dev/stdin < /private/path/temporary-password.txt
+ ```
+ 
+-For a new snapshot inside the container: `docker compose exec coach npm run embeddings:build`. Do not use `docker compose down -v` unless you intend to delete its database volume. Docker configuration was inspected; container execution was not tested because the local daemon was stopped.
++To back up the Docker database with its matching PostgreSQL tools:
+ 
+-For shared hosting, put HTTPS and your organization’s access control in front of the app. Chat generation is available to anyone who can reach the API and is rate/concurrency limited; the reviewer token protects review operations only. Default Express proxy trust is disabled; configure a trusted proxy deliberately if deployment needs client-specific rate limits behind one.
++```sh
++docker compose exec -T db pg_dump -U coach_owner -d commerce_coach --format=custom > /private/path/coach.dump
++```
+ 
+-## Verification
++The `postgres-data` volume persists accounts and feedback; `coach-data` persists embeddings. The container starts with a fresh database; local data is excluded from image layers. Build embeddings with `docker compose exec coach npm run embeddings:build` after configuring OpenRouter. Do not remove volumes unless you intend to delete their data.
++
++Docker Compose syntax was checked. Container execution was not tested because the local Docker daemon was unavailable.
++
++## Tests
+ 
+ ```sh
+ npm run lint
+@@ -104,4 +123,12 @@
+ npm run build
+ ```
+ 
+-See `VERIFICATION.md` for the checks performed during extraction. No live paid generation or embedding rebuild was performed during packaging.
++Security tests run against a real, disposable PostgreSQL database. Provide an administrative test connection that can create/drop databases and roles:
++
++```sh
++TEST_DATABASE_ADMIN_URL=postgresql://... npm run test:security
++```
++
++In this prepared workspace, `DOTENV_CONFIG_PATH=data/security-test.env npm run test:security` loads the private test connection without exposing it in shell history.
++
++The suite creates a uniquely named database and two runtime logins, verifies RBAC, RLS, session revocation, CSRF, and tenant isolation, then removes them. Do not put a secret connection URL into shell history; load it from a private environment file or your secret manager. `npm run test:all` runs both suites when this variable is configured. See `VERIFICATION.md` for results.
+--- before/commerce-coach/ROLLBACK.md
++++ after/commerce-coach/ROLLBACK.md
+@@ -0,0 +1,3 @@
++# Authentication / RBAC / PostgreSQL RLS rollback
++
++Restore the pre-authentication source and SQLite database from `/tmp/commerce-coach-before-auth.zip` (a local backup made before changes). Stop the new API first. PostgreSQL migration is separate and never deletes the original `data/coach.db`; retain its PostgreSQL backup if users have added new records. Reinstall dependencies, rebuild, and verify SQLite feedback and Coach workflows. The former shared-token app does not provide the new security boundaries.
+--- before/commerce-coach/VERIFICATION.md
++++ after/commerce-coach/VERIFICATION.md
+@@ -1,19 +1,21 @@
+-# Verification — 2026-09-06
++# Verification — authentication, RBAC, and RLS (2026-09-06)
+ 
+-- [x] `npm ci` — installed 264 packages from the standalone lockfile; native SQLite opens successfully.
+-- [x] `npm run lint` — TypeScript passed.
+-- [x] `npm test` — 57 tests passed, including HTTP validation, no-provider fallback, forged-header rejection, token-authorized review, and feedback persistence after closing/reopening SQLite.
+-- [x] `npm run coach:eval` — all 6 approved English, typo, and Bangla workflows passed.
+-- [x] `npm run build` — production build passed; screenshot assets load and no adjacent TypeScript source/test files are published as assets.
+-- [x] Independent directory — copied the app with its own installed dependencies to `/tmp/commerce-coach-isolated-oznm77ym/commerce-coach`; lint, all 57 tests, all 6 evaluations, and production build passed there.
+-- [x] `npm run db:init` — created a Coach-only SQLite database.
+-- [x] `npm run db:import -- ../data/merchant.db` — imported 2 feedback records without modifying the source database.
+-- [x] `npm run db:backup -- /tmp/coach-backup-check.db` — completed SQLite online backup.
+-- [x] `/api/coach/embeddings/status` — snapshot exists/current, 239 documents, 114 images, 768 dimensions; semantic retrieval disabled until a provider key is supplied.
+-- [x] Chrome, production build — English Instant Checkout query returned Orders → Processing with 2 images at 1800px natural width; image preview opened.
+-- [x] Chrome — Bangla Meta catalogue question rendered the approved Bangla workflow with 4 screenshots; helpful feedback submission completed; Learning unlocked with the test reviewer token; no console errors.
+-- [x] `docker compose config --quiet` — configuration valid.
+-- [ ] Docker build/container run — not run; Docker daemon was unavailable.
+-- [ ] Live OpenRouter/Gemini chat and embedding rebuild — not run; no provider keys were configured for packaging checks.
++- [x] `npm run lint` — TypeScript passed after the authentication/database migration.
++- [x] `npm test` — all 56 existing Coach/legacy-import foundation tests passed.
++- [x] `DOTENV_CONFIG_PATH=data/security-test.env npm run test:security` — all 10 tests passed against a disposable real PostgreSQL database. The suite applies migrations twice and removes its database/logins afterward.
++- [x] Direct SQL checks — application role cannot access auth tables, create sessions, truncate the feedback table, or disable RLS. Missing/forged session context sees no rows; transaction context does not leak across pool reuse.
++- [x] Cross-organization checks — RLS blocks foreign reads, inserts, ownership changes, and reviews; same response IDs from different users remain distinct.
++- [x] RBAC checks — members cannot review or administer; reviewers cannot administer; admins can affect only their own organization and cannot remove its last active admin.
++- [x] Session checks — HttpOnly/SameSite cookies, hashed stored tokens, CSRF rejection, wrong-origin rejection, mandatory password changes, expiry, logout, and revocation after role/disable/password changes.
++- [x] `npm run coach:eval` — all 6 English, typo, and Bangla workflow evaluations passed.
++- [x] `npm run build` — production build passed.
++- [x] `npm run db:init` — both restricted runtime connections and forced RLS verified.
++- [x] Legacy import — 2 original SQLite feedback records imported into `pathao`; SQLite remains untouched for rollback/import.
++- [x] `npm run db:backup` with the owner environment — PostgreSQL custom-format backup completed.
++- [x] Chrome — sign-in and sign-out worked; member saw no Learning/Team access; authenticated member received the canonical Orders → Processing answer and two screenshots. Admin saw Learning and Team access, including organization-only users, role/access controls, and reset-password fields. No console errors were observed.
++- [x] Disposable browser-test organization/accounts were removed; the final app serves the sign-in page on port 4010.
++- [x] `docker compose --env-file /tmp/coach-compose-test.env config --quiet` — three-service configuration valid with separate owner/data/auth credentials.
++- [ ] Docker container build/run — not tested; local daemon unavailable.
++- [ ] Live paid OpenRouter/Gemini generation and embedding rebuild — not run.
+ 
+-Tests used a temporary database and test-only reviewer token; test feedback is not in the packaged database. `EXTRACTION.patch` records adaptations to copied modules and provider relocation. Newly scaffolded entry points, database utilities, and API composition are directly reviewable in this folder. The original application code was not edited.
++Security tests use synthetic accounts. Local first-admin credentials are private and excluded from source/archive output. The ZIP contains schema/migrations and the legacy Coach-only data for import, not PostgreSQL accounts, sessions, credentials, or physical cluster files. `ACCESS_CONTROL.patch` captures this change against the earlier standalone package; `EXTRACTION.patch` is the historical dashboard extraction diff.
+--- before/commerce-coach/compose.yaml
++++ after/commerce-coach/compose.yaml
+@@ -1,16 +1,46 @@
+ services:
++  db:
++    image: postgres:17
++    environment:
++      POSTGRES_DB: commerce_coach
++      POSTGRES_USER: coach_owner
++      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
++    volumes:
++      - postgres-data:/var/lib/postgresql/data
++    healthcheck:
++      test: ["CMD-SHELL", "pg_isready -U coach_owner -d commerce_coach"]
++      interval: 5s
++      timeout: 3s
++      retries: 20
++    restart: unless-stopped
++  migrate:
++    build: .
++    command: ["npm", "run", "db:migrate"]
++    environment:
++      MIGRATION_DATABASE_URL: postgresql://coach_owner:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/commerce_coach
++      DATABASE_URL: postgresql://coach_runtime:${COACH_DB_PASSWORD:?Set COACH_DB_PASSWORD}@db:5432/commerce_coach
++      AUTH_DATABASE_URL: postgresql://coach_login:${COACH_AUTH_PASSWORD:?Set COACH_AUTH_PASSWORD}@db:5432/commerce_coach
++    depends_on:
++      db:
++        condition: service_healthy
+   coach:
+     build: .
+     ports:
+-      - "4010:4010"
++      - "127.0.0.1:4010:4010"
+     environment:
+       HOST: 0.0.0.0
+       PORT: 4010
++      DATABASE_URL: postgresql://coach_runtime:${COACH_DB_PASSWORD:?Set COACH_DB_PASSWORD}@db:5432/commerce_coach
++      AUTH_DATABASE_URL: postgresql://coach_login:${COACH_AUTH_PASSWORD:?Set COACH_AUTH_PASSWORD}@db:5432/commerce_coach
++      APP_ORIGINS: ${APP_ORIGINS:-http://localhost:4010}
+       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+-      COACH_REVIEW_TOKEN: ${COACH_REVIEW_TOKEN:-}
+     volumes:
+       - coach-data:/app/data
++    depends_on:
++      migrate:
++        condition: service_completed_successfully
+     restart: unless-stopped
+ volumes:
+   coach-data:
++  postgres-data:
+--- before/commerce-coach/package.json
++++ after/commerce-coach/package.json
+@@ -13,10 +13,14 @@
+     "server": "node --import tsx server/index.ts",
+     "client": "vite --host 0.0.0.0 --port 8010",
+     "start": "node --import tsx server/index.ts",
+-    "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/app.test.ts",
++    "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts",
+     "db:init": "node --import tsx scripts/init-db.ts",
+     "db:backup": "node --import tsx scripts/backup-db.ts",
+-    "db:import": "node --import tsx scripts/import-feedback.ts"
++    "db:import": "node --import tsx scripts/import-feedback.ts",
++    "db:migrate": "node --import tsx scripts/migrate.ts",
++    "admin:create": "node --import tsx scripts/create-admin.ts",
++    "test:security": "node --import tsx --test server/security.test.ts",
++    "test:all": "npm test && npm run test:security"
+   },
+   "dependencies": {
+     "@google/genai": "^1.29.0",
+@@ -26,6 +30,7 @@
+     "dotenv": "^17.2.3",
+     "express": "^4.21.2",
+     "lucide-react": "^0.546.0",
++    "pg": "^8.23.0",
+     "react": "^19.0.1",
+     "react-dom": "^19.0.1",
+     "vite": "^6.2.3"
+@@ -34,6 +39,7 @@
+     "@types/better-sqlite3": "^7.6.13",
+     "@types/express": "^4.17.21",
+     "@types/node": "^22.14.0",
++    "@types/pg": "^8.23.1",
+     "autoprefixer": "^10.4.21",
+     "concurrently": "^10.0.3",
+     "tailwindcss": "^4.1.14",
+--- before/commerce-coach/scripts/backup-db.ts
++++ after/commerce-coach/scripts/backup-db.ts
+@@ -1,5 +1,8 @@
+-import { getDb, closeDb } from '../server/db';
+-const destination = process.argv[2];
+-if (!destination) throw new Error('Usage: npm run db:backup -- /path/to/backup.db');
+-try { await getDb().backup(destination); console.log(`Backup saved: ${destination}`); }
+-finally { closeDb(); }
++import 'dotenv/config';
++import { spawn } from 'node:child_process';
++const destination=process.argv[2];
++if(!destination || !process.env.MIGRATION_DATABASE_URL) throw new Error('Usage: npm run db:backup -- /path/to/coach.dump (set MIGRATION_DATABASE_URL)');
++const url=new URL(process.env.MIGRATION_DATABASE_URL);
++const child=spawn('pg_dump',['--format=custom','--file',destination],{stdio:'inherit',env:{...process.env,PGHOST:url.hostname,PGPORT:url.port || '5432',PGDATABASE:url.pathname.slice(1),PGUSER:decodeURIComponent(url.username),PGPASSWORD:decodeURIComponent(url.password)}});
++child.on('error',error=>{console.error(error.message);process.exitCode=1;});
++child.on('exit',code=>{process.exitCode=code || 0;});
+--- before/commerce-coach/scripts/create-admin.ts
++++ after/commerce-coach/scripts/create-admin.ts
+@@ -0,0 +1,21 @@
++import 'dotenv/config';
++import { Pool } from 'pg';
++import { randomUUID } from 'node:crypto';
++import { readFile } from 'node:fs/promises';
++import { hashPassword } from '../server/auth/password';
++const [slug, name, email, passwordFile] = process.argv.slice(2);
++if (!slug || !/^[a-z0-9-]{2,80}$/.test(slug) || !name || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !passwordFile || !process.env.MIGRATION_DATABASE_URL) throw new Error('Usage: npm run admin:create -- organization-slug "Organization name" admin@example.com /private/password-file (set MIGRATION_DATABASE_URL)');
++const hash = await hashPassword((await readFile(passwordFile,'utf8')).trim());
++const pool = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL });
++const client = await pool.connect();
++try {
++  await client.query('BEGIN');
++  await client.query("SELECT pg_advisory_xact_lock(hashtext('commerce-coach-admin'))");
++  const org = (await client.query(`INSERT INTO coach_private.organizations(id,slug,name) VALUES($1,$2,$3)
++    ON CONFLICT(slug) DO UPDATE SET slug=excluded.slug RETURNING id`, [randomUUID(),slug,name])).rows[0];
++  await client.query(`INSERT INTO coach_private.users(id,organization_id,email,name,password_hash,role,must_change_password)
++    VALUES($1,$2,$3,'Administrator',$4,'admin',true)`,[randomUUID(),org.id,email.toLowerCase(),hash]);
++  await client.query('COMMIT');
++  console.log(`Administrator created for ${slug}. Sign in as ${email}; a password change is required.`);
++} catch (error) { await client.query('ROLLBACK'); throw error; }
++finally { client.release(); await pool.end(); }
+--- before/commerce-coach/scripts/import-feedback.ts
++++ after/commerce-coach/scripts/import-feedback.ts
+@@ -1,19 +1,29 @@
++import 'dotenv/config';
+ import Database from 'better-sqlite3';
+-import { getDb, closeDb, databasePath } from '../server/db';
+-import path from 'node:path';
+-const sourcePath = process.argv[2];
+-if (!sourcePath || path.resolve(sourcePath) === path.resolve(databasePath)) throw new Error('Pass a different source SQLite database: npm run db:import -- /path/to/merchant.db');
+-const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
++import { Pool } from 'pg';
++const [sourcePath, organization, email] = process.argv.slice(2);
++if (!sourcePath || !organization || !email || !process.env.MIGRATION_DATABASE_URL) throw new Error('Usage: npm run db:import -- /path/to/coach.db organization-slug owner@example.com (set MIGRATION_DATABASE_URL)');
++const source = new Database(sourcePath,{readonly:true,fileMustExist:true});
++const pool = new Pool({connectionString:process.env.MIGRATION_DATABASE_URL});
++const client = await pool.connect();
+ try {
+-  const target = getDb();
+-  const targetColumns = target.prepare('PRAGMA table_info(coach_feedback)').all() as { name: string }[];
+-  const sourceColumns = source.prepare('PRAGMA table_info(coach_feedback)').all() as { name: string }[];
+-  if (!sourceColumns.length) throw new Error('Source has no coach_feedback table.');
+-  // Copy only Coach records; merchant, parcel, and issue data remain in the source database.
+-  const columns = targetColumns.map(c => c.name).filter(name => sourceColumns.some(c => c.name === name));
+-  const names = columns.map(name => `"${name}"`).join(', ');
+-  const rows = source.prepare(`SELECT ${names} FROM coach_feedback`).all() as Record<string, unknown>[];
+-  const insert = target.prepare(`INSERT OR IGNORE INTO coach_feedback (${names}) VALUES (${columns.map(() => '?').join(', ')})`);
+-  const count = target.transaction(() => rows.reduce((total, row) => total + insert.run(...columns.map(name => row[name])).changes, 0))();
+-  console.log(`Imported ${count} Coach feedback records; existing records were preserved.`);
+-} finally { source.close(); closeDb(); }
++  const actor = (await client.query(`SELECT u.id,u.organization_id FROM coach_private.users u JOIN coach_private.organizations o ON o.id=u.organization_id WHERE o.slug=$1 AND u.email=$2`,[organization,email.toLowerCase()])).rows[0];
++  if (!actor) throw new Error('Create the target organization and owner first.');
++  const rows = source.prepare('SELECT * FROM coach_feedback').all() as Record<string,any>[];
++  await client.query('BEGIN');
++  // This offline migration must use the table owner/superuser, never the web application's login.
++  // FORCE RLS is disabled only inside this transaction; a rollback restores it on any failure.
++  await client.query('ALTER TABLE public.coach_feedback NO FORCE ROW LEVEL SECURITY');
++  let count=0;
++  for (const row of rows) {
++    const result = await client.query(`INSERT INTO public.coach_feedback(id,organization_id,user_id,response_id,query,answer,rating,issue_type,comment,suggested_answer,screenshot_ids_json,retrieval_document_ids_json,provider,intent_id,status,review_note,created_at,updated_at)
++    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT DO NOTHING`,
++    [row.id,actor.organization_id,actor.id,row.response_id,row.query,row.answer,row.rating,row.issue_type,row.comment,row.suggested_answer,row.screenshot_ids_json,row.retrieval_document_ids_json,row.provider,row.intent_id || '',row.status,
++     [row.review_note,row.reviewer_id ? `Legacy reviewer: ${row.reviewer_id}` : ''].filter(Boolean).join('\n'),row.created_at,row.updated_at]);
++    count+=result.rowCount || 0;
++  }
++  await client.query('ALTER TABLE public.coach_feedback FORCE ROW LEVEL SECURITY');
++  await client.query('COMMIT');
++  console.log(`Imported ${count} feedback records into ${organization}; source and existing rows were preserved.`);
++} catch(error) { await client.query('ROLLBACK'); throw error; }
++finally { source.close(); client.release(); await pool.end(); }
+--- before/commerce-coach/scripts/init-db.ts
++++ after/commerce-coach/scripts/init-db.ts
+@@ -1,4 +1,2 @@
+-import { getDb, closeDb, databasePath } from '../server/db';
+-getDb();
+-closeDb();
+-console.log(`Coach database initialized: ${databasePath}`);
++import { checkDatabase,closeDb } from '../server/db';
++try { await checkDatabase(); console.log('PostgreSQL connection and RLS runtime role verified.'); } finally { await closeDb(); }
+--- before/commerce-coach/scripts/migrate.ts
++++ after/commerce-coach/scripts/migrate.ts
+@@ -0,0 +1,3 @@
++import { migrate } from '../server/migrate';
++await migrate();
++console.log('PostgreSQL schema, runtime role, and RLS policies are ready.');
+--- before/commerce-coach/server/app.test.ts
++++ after/commerce-coach/server/app.test.ts
+@@ -1,49 +0,0 @@
+-import assert from 'node:assert/strict';
+-import { test } from 'node:test';
+-import { mkdtemp, rm } from 'node:fs/promises';
+-import { tmpdir } from 'node:os';
+-import path from 'node:path';
+-
+-test('standalone API validates input, persists feedback, and verifies reviewer credentials', async () => {
+-  const temp = await mkdtemp(path.join(tmpdir(), 'coach-api-'));
+-  process.env.COACH_DB_PATH = path.join(temp, 'coach.db');
+-  process.env.COACH_REVIEW_TOKEN = 'test-only-review-token';
+-  process.env.OPENROUTER_API_KEY = '';
+-  process.env.VITE_OPENROUTER_API_KEY = '';
+-  process.env.GEMINI_API_KEY = '';
+-  process.env.COACH_EMBEDDING_SNAPSHOT = path.join(temp, 'missing.json');
+-  const { app } = await import('./app');
+-  const { closeDb, getDb } = await import('./db');
+-  const server = app.listen(0, '127.0.0.1');
+-  await new Promise<void>(resolve => server.once('listening', resolve));
+-  const address = server.address() as { port: number };
+-  const request = (url: string, body?: unknown, headers = {}, method = body ? 'POST' : 'GET') => fetch(`http://127.0.0.1:${address.port}${url}`, {
+-    method, headers: { 'Content-Type': 'application/json', ...headers }, ...(body ? { body: JSON.stringify(body) } : {}),
+-  });
+-  try {
+-    assert.equal((await request('/api/health')).status, 200);
+-    assert.deepEqual(await (await request('/api/config')).json(), { openrouter: false, gemini: false });
+-    assert.equal((await request('/api/coach/generate', { provider: 'invalid' })).status, 400);
+-    assert.equal((await request('/api/coach/generate', { provider: 'gemini', messages: [{ role: 'user', content: 'Hi' }], state: { mode: 'normal', quizScore: { correct: 0, total: 0 } } })).status, 503);
+-    assert.equal((await request('/api/coach/retrieve', { query: '' })).status, 400);
+-    const retrieval = await (await request('/api/coach/retrieve', { query: 'cant find instant check order in new order tab' })).json();
+-    assert.ok(JSON.stringify(retrieval).includes('trouble-001'));
+-    assert.equal((await request('/api/coach/feedback', { rating: 'helpful' })).status, 400);
+-    const saved = await request('/api/coach/feedback', { responseId: 'standalone-test', query: 'Where are orders?', answer: 'Wrong answer', rating: 'unhelpful', issueType: 'wrong-answer' });
+-    assert.equal(saved.status, 201);
+-    const { feedback } = await saved.json();
+-    assert.equal((await request('/api/coach/feedback')).status, 403);
+-    assert.equal((await request('/api/coach/feedback', undefined, { 'x-user-id': 'admin', 'x-user-role': 'admin' })).status, 403);
+-    assert.equal((await request('/api/coach/feedback', undefined, { Authorization: 'Bearer incorrect' })).status, 403);
+-    const auth = { Authorization: `Bearer ${process.env.COACH_REVIEW_TOKEN}` };
+-    assert.equal((await (await request('/api/coach/feedback', undefined, auth)).json()).items.length, 1);
+-    assert.equal((await request(`/api/coach/feedback/${feedback.id}`, { status: 'approved' }, auth, 'PATCH')).status, 200);
+-    closeDb();
+-    assert.equal((getDb().prepare('SELECT status FROM coach_feedback WHERE id = ?').get(feedback.id) as { status: string }).status, 'approved');
+-    assert.equal((await request('/api/unknown')).status, 404);
+-  } finally {
+-    await new Promise<void>(resolve => server.close(() => resolve()));
+-    closeDb();
+-    await rm(temp, { recursive: true, force: true });
+-  }
+-});
+--- before/commerce-coach/server/app.ts
++++ after/commerce-coach/server/app.ts
+@@ -2,7 +2,9 @@
+ import express from 'express';
+ import { fileURLToPath } from 'node:url';
+ import coachRoutes from './routes/coach';
+-import { getDb } from './db';
++import { pool } from './db';
++import { authRoutes, userRoutes } from './auth/routes';
++import { asyncRoute, requireAuth, requireReady, sameOrigin } from './auth/middleware';
+ import { generateOpenRouterResponse, isOpenRouterAvailable } from './coach/openrouterService';
+ import { generateLLMResponse, isGeminiAvailable } from './coach/geminiService';
+ import type { ChatMessage, ConversationState } from '../src/coach/responseEngine';
+@@ -10,7 +12,12 @@
+ export const app = express();
+ app.disable('x-powered-by');
+ app.use(express.json({ limit: '256kb' }));
+-app.get('/api/health', (_req, res) => { getDb().prepare('SELECT 1').get(); res.json({ status: 'ok' }); });
++app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
++app.use('/api', sameOrigin);
++app.get('/api/health', asyncRoute(async (_req, res) => { await pool.query('SELECT 1'); res.json({ status: 'ok' }); }));
++app.use('/api/auth', authRoutes);
++app.use('/api/users', userRoutes);
++app.use('/api', requireAuth, requireReady);
+ app.get('/api/config', (_req, res) => res.json({ openrouter: isOpenRouterAvailable(), gemini: isGeminiAvailable() }));
+ // Bound paid generation per client and globally; retrieval has its own limiter.
+ const calls = new Map<string, { count: number; until: number }>();
+@@ -30,7 +37,7 @@
+   }
+   const now = Date.now();
+   for (const [key, value] of calls) if (value.until <= now) calls.delete(key);
+-  const key = req.ip || 'unknown';
++  const key = req.actor!.id;
+   const bucket = calls.get(key) || { count: 0, until: now + 60000 };
+   calls.set(key, bucket);
+   if (++bucket.count > 10 || active >= 4) { res.status(429).json({ error: 'Please try again shortly.' }); return; }
+@@ -46,6 +53,7 @@
+ const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+ app.use(express.static(dist));
+ app.get('*', (_req, res) => res.sendFile(`${dist}index.html`));
+-app.use((error: { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+-  res.status(error.status || 500).json({ error: error.status === 413 ? 'Request too large.' : 'Request failed.' });
++app.use((error: { status?: number; code?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
++  const status = error.code === '23505' || error.code === '23514' ? 409 : error.code === '42501' ? 403 : error.code === '22P02' ? 400 : error.status || 500;
++  res.status(status).json({ error: status === 409 ? 'A user already exists, or this change would remove the last active admin.' : status === 403 ? 'Access denied.' : status === 413 ? 'Request too large.' : 'Request failed.' });
+ });
+--- before/commerce-coach/server/auth/middleware.ts
++++ after/commerce-coach/server/auth/middleware.ts
+@@ -0,0 +1,51 @@
++import type { Request, Response, NextFunction, RequestHandler } from 'express';
++import { timingSafeEqual } from 'node:crypto';
++import { withSession } from '../db';
++import { digest } from './password';
++export type Role = 'member' | 'reviewer' | 'admin';
++export interface Actor { id: string; organization_id: string; email: string; name: string; role: Role; organization_name: string; organization_slug: string; must_change_password: boolean; csrf_token: string; }
++declare global { namespace Express { interface Request { actor?: Actor; sessionHash?: string; } } }
++export const asyncRoute = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler => (req, res, next) => { Promise.resolve(fn(req, res)).catch(next); };
++export function cookieName() { return process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production' ? '__Host-coach_session' : 'coach_session'; }
++export function readSession(req: Request) {
++  const raw = req.headers.cookie?.split(';').map(c => c.trim()).find(c => c.startsWith(`${cookieName()}=`))?.slice(cookieName().length + 1);
++  return raw && /^[\w-]{43}$/.test(raw) ? digest(raw) : '';
++}
++export function setSessionCookie(res: Response, token: string) {
++  res.cookie(cookieName(), token, { httpOnly: true, secure: cookieName().startsWith('__Host-'), sameSite: 'strict', path: '/', maxAge: 12 * 60 * 60 * 1000 });
++}
++export function clearSessionCookie(res: Response) { res.clearCookie(cookieName(), { httpOnly: true, secure: cookieName().startsWith('__Host-'), sameSite: 'strict', path: '/' }); }
++export function sameOrigin(req: Request, res: Response, next: NextFunction) {
++  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) { next(); return; }
++  // Explicit custom header plus JSON blocks cross-site form posts, including login CSRF.
++  if (req.headers['x-coach-request'] !== '1' || !req.is('application/json') || req.headers['sec-fetch-site'] === 'cross-site') {
++    res.status(403).json({ error: 'Request origin could not be verified.' }); return;
++  }
++  const origin = req.headers.origin;
++  const allowed = (process.env.APP_ORIGINS || 'http://localhost:4010,http://localhost:8010,http://127.0.0.1:4010,http://127.0.0.1:8010').split(',');
++  if (origin && !allowed.includes(origin)) { res.status(403).json({ error: 'Origin is not allowed.' }); return; }
++  next();
++}
++export const requireAuth: RequestHandler = (req, res, next) => {
++  Promise.resolve((async () => {
++    const hash = readSession(req);
++    const actor = hash ? await withSession(hash, async client => (await client.query<Actor>('SELECT * FROM public.coach_actor()')).rows[0]) : undefined;
++    if (!actor) { res.status(401).json({ error: 'Sign in to continue.' }); return; }
++    req.actor = actor; req.sessionHash = hash;
++    if (!['GET','HEAD','OPTIONS'].includes(req.method)) {
++      const csrf = req.headers['x-csrf-token'];
++      if (typeof csrf !== 'string' || Buffer.byteLength(csrf) !== Buffer.byteLength(actor.csrf_token) || !timingSafeEqual(Buffer.from(csrf), Buffer.from(actor.csrf_token))) {
++        res.status(403).json({ error: 'Invalid CSRF token.' }); return;
++      }
++    }
++    next();
++  })()).catch(next);
++};
++export const requireReady: RequestHandler = (req, res, next) => {
++  if (req.actor?.must_change_password) { res.status(403).json({ error: 'Change your temporary password first.' }); return; }
++  next();
++};
++export const requireRole = (...roles: Role[]): RequestHandler => (req, res, next) => {
++  if (!req.actor || !roles.includes(req.actor.role)) { res.status(403).json({ error: 'You do not have permission for this action.' }); return; }
++  next();
++};
+--- before/commerce-coach/server/auth/password.ts
++++ after/commerce-coach/server/auth/password.ts
+@@ -0,0 +1,19 @@
++import { randomBytes, scrypt, timingSafeEqual, createHash } from 'node:crypto';
++export const digest = (token: string) => createHash('sha256').update(token).digest('hex');
++export const randomToken = () => randomBytes(32).toString('base64url');
++export function validPassword(value: unknown): value is string { return typeof value === 'string' && value.length >= 12 && Buffer.byteLength(value) <= 256; }
++async function derive(password: string, salt: string): Promise<Buffer> {
++  return new Promise((resolve, reject) => scrypt(password, salt, 64, { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 }, (error, key) => error ? reject(error) : resolve(key)));
++}
++export async function hashPassword(password: string) {
++  if (!validPassword(password)) throw new Error('Use a password of at least 12 characters and at most 256 bytes.');
++  const salt = randomBytes(16).toString('hex');
++  return `scrypt:${salt}:${(await derive(password, salt)).toString('hex')}`;
++}
++export async function verifyPassword(password: string, stored: string) {
++  const [algorithm, salt, hash] = stored.split(':');
++  if (algorithm !== 'scrypt' || !salt || !/^[a-f0-9]{128}$/.test(hash || '')) return false;
++  return timingSafeEqual(await derive(password, salt), Buffer.from(hash, 'hex'));
++}
++// Unknown accounts still do the same expensive password work.
++export const dummyHash = `scrypt:${'0'.repeat(32)}:${'0'.repeat(128)}`;
+--- before/commerce-coach/server/auth/routes.ts
++++ after/commerce-coach/server/auth/routes.ts
+@@ -0,0 +1,84 @@
++import { Router, type RequestHandler } from 'express';
++import { randomUUID } from 'node:crypto';
++import { authPool, withSession } from '../db';
++import { digest, randomToken, hashPassword, verifyPassword, dummyHash, validPassword } from './password';
++import { asyncRoute, requireAuth, requireReady, requireRole, setSessionCookie, clearSessionCookie } from './middleware';
++export const authRoutes = Router();
++const attempts = new Map<string, { count: number; until: number }>();
++let passwordWork = 0;
++const passwordChanges = new Map<string, { count: number; until: number }>();
++const passwordBudget: RequestHandler = (req, res, next) => {
++  const now = Date.now();
++  for (const [key, bucket] of passwordChanges) if (bucket.until <= now) passwordChanges.delete(key);
++  const key = req.actor!.id;
++  const bucket = passwordChanges.get(key) || { count: 0, until: now + 15 * 60000 };
++  passwordChanges.set(key, bucket);
++  if (++bucket.count > 20 || passwordWork >= 4) { res.status(429).json({ error: 'Too many credential changes. Try again later.' }); return; }
++  passwordWork++;
++  res.once('finish', () => { passwordWork--; });
++  next();
++};
++authRoutes.post('/login', asyncRoute(async (req, res) => {
++  const now = Date.now();
++  for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
++  const key = req.ip || 'unknown';
++  const bucket = attempts.get(key) || { count: 0, until: now + 15 * 60000 };
++  attempts.set(key, bucket);
++  if (++bucket.count > 20 || passwordWork >= 4) { res.status(429).json({ error: 'Too many sign-in attempts. Try again later.' }); return; }
++  const { organization, email, password } = req.body || {};
++  if (typeof organization !== 'string' || organization.length > 80 || typeof email !== 'string' || email.length > 254 || typeof password !== 'string' || Buffer.byteLength(password) > 256) {
++    res.status(400).json({ error: 'Organization, email, and password are required.' }); return;
++  }
++  passwordWork++;
++  try {
++    const found = (await authPool.query('SELECT * FROM public.coach_login_lookup($1,$2)', [organization.trim().toLowerCase(), email.trim().toLowerCase()])).rows[0];
++    const matches = await verifyPassword(password, found?.password_hash || dummyHash);
++    if (!found || !matches) { res.status(401).json({ error: 'Invalid organization, email, or password.' }); return; }
++    const token = randomToken();
++    const created = await authPool.query('SELECT public.coach_open_session($1,$2,$3,$4) AS ok', [found.id, found.password_hash, digest(token), randomToken()]);
++    if (!created.rows[0].ok) { res.status(401).json({ error: 'Please sign in again.' }); return; }
++    setSessionCookie(res, token);
++    res.json({ ok: true });
++  } finally { passwordWork--; }
++}));
++authRoutes.use(requireAuth);
++authRoutes.get('/me', (req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json({ user: req.actor }); });
++authRoutes.post('/logout', asyncRoute(async (req, res) => {
++  await withSession(req.sessionHash!, client => client.query('SELECT public.coach_logout()'));
++  clearSessionCookie(res); res.json({ ok: true });
++}));
++authRoutes.post('/password', passwordBudget, asyncRoute(async (req, res) => {
++  const { currentPassword, newPassword } = req.body || {};
++  if (typeof currentPassword !== 'string' || Buffer.byteLength(currentPassword) > 256 || !validPassword(newPassword) || currentPassword === newPassword) {
++    res.status(400).json({ error: 'Choose a new password of at least 12 characters (maximum 256 bytes).' }); return;
++  }
++  const hash = await withSession(req.sessionHash!, async client => (await client.query('SELECT public.coach_password_hash() AS hash')).rows[0].hash);
++  if (!hash || !await verifyPassword(currentPassword, hash)) { res.status(403).json({ error: 'Current password is incorrect.' }); return; }
++  const nextHash = await hashPassword(newPassword);
++  const changed = await withSession(req.sessionHash!, async client => (await client.query('SELECT public.coach_change_password($1,$2) AS ok', [hash, nextHash])).rows[0].ok);
++  if (!changed) { res.status(409).json({ error: 'Credentials changed. Sign in again.' }); return; }
++  clearSessionCookie(res); res.json({ ok: true });
++}));
++export const userRoutes = Router();
++userRoutes.use(requireAuth, requireReady, requireRole('admin'));
++userRoutes.get('/', asyncRoute(async (req, res) => {
++  res.json({ users: await withSession(req.sessionHash!, async client => (await client.query('SELECT * FROM public.coach_list_users()')).rows) });
++}));
++userRoutes.post('/', passwordBudget, asyncRoute(async (req, res) => {
++  const { email, name, role, password } = req.body || {};
++  if (typeof email !== 'string' || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof name !== 'string' || !name.trim() || name.length > 100 || !['admin','reviewer','member'].includes(role) || !validPassword(password)) {
++    res.status(400).json({ error: 'Enter a name, valid email, role, and temporary password of at least 12 characters.' }); return;
++  }
++  const hash = await hashPassword(password);
++  await withSession(req.sessionHash!, client => client.query('SELECT public.coach_create_user($1,$2,$3,$4,$5)', [randomUUID(), email.trim().toLowerCase(), name.trim(), hash, role]));
++  res.status(201).json({ ok: true });
++}));
++userRoutes.patch('/:id', passwordBudget, asyncRoute(async (req, res) => {
++  const { role, active, password } = req.body || {};
++  if (!/^[a-f0-9-]{36}$/i.test(req.params.id) || !['admin','reviewer','member'].includes(role) || typeof active !== 'boolean' || (password !== undefined && !validPassword(password))) {
++    res.status(400).json({ error: 'Invalid user update.' }); return;
++  }
++  const hash = password ? await hashPassword(password) : null;
++  const changed = await withSession(req.sessionHash!, async client => (await client.query('SELECT public.coach_update_user($1,$2,$3,$4) AS ok', [req.params.id, role, active, hash])).rows[0].ok);
++  res.status(changed ? 200 : 404).json(changed ? { ok: true } : { error: 'User not found.' });
++}));
+--- before/commerce-coach/server/coach/pgFeedbackStore.ts
++++ after/commerce-coach/server/coach/pgFeedbackStore.ts
+@@ -0,0 +1,41 @@
++import { randomUUID } from 'node:crypto';
++import type { PoolClient } from 'pg';
++import type { Actor } from '../auth/middleware';
++import type { SaveCoachFeedbackInput, ReviewCoachFeedbackInput, CoachFeedbackRecord, CoachFeedbackStatus } from './feedbackStore';
++function map(row: any): CoachFeedbackRecord {
++  return { id: row.id, responseId: row.response_id, query: row.query, answer: row.answer, rating: row.rating,
++    issueType: row.issue_type, comment: row.comment, suggestedAnswer: row.suggested_answer,
++    screenshotIds: row.screenshot_ids_json, retrievalDocumentIds: row.retrieval_document_ids_json,
++    provider: row.provider, intentId: row.intent_id, status: row.status, reviewerId: row.reviewer_id,
++    reviewNote: row.review_note, createdAt: row.created_at.toISOString(), updatedAt: row.updated_at.toISOString() };
++}
++export class PgFeedbackStore {
++  constructor(private readonly client: PoolClient, private readonly actor: Actor) {}
++  async save(input: SaveCoachFeedbackInput) {
++    const result = await this.client.query(`INSERT INTO public.coach_feedback (
++      id,organization_id,user_id,response_id,query,answer,rating,issue_type,comment,suggested_answer,
++      screenshot_ids_json,retrieval_document_ids_json,provider,intent_id,status
++    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
++    ON CONFLICT (organization_id,user_id,response_id) DO UPDATE SET
++      query=excluded.query,answer=excluded.answer,rating=excluded.rating,issue_type=excluded.issue_type,
++      comment=excluded.comment,suggested_answer=excluded.suggested_answer,screenshot_ids_json=excluded.screenshot_ids_json,
++      retrieval_document_ids_json=excluded.retrieval_document_ids_json,provider=excluded.provider,intent_id=excluded.intent_id,
++      status=excluded.status,reviewer_id=NULL,review_note='',updated_at=now() RETURNING *`,
++      [randomUUID(),this.actor.organization_id,this.actor.id,input.responseId,input.query,input.answer,input.rating,
++       input.issueType || null,input.comment || '',input.suggestedAnswer || '',JSON.stringify(input.screenshotIds || []),
++       JSON.stringify(input.retrievalDocumentIds || []),input.provider || '',input.intentId || '',input.rating === 'helpful' ? 'recorded' : 'pending']);
++    return map(result.rows[0]);
++  }
++  async list(options: { status?: CoachFeedbackStatus; limit?: number; mine?: boolean }) {
++    const result = await this.client.query(`SELECT * FROM public.coach_feedback
++      WHERE ($1::text IS NULL OR status=$1) AND ($2::uuid IS NULL OR user_id=$2)
++      ORDER BY created_at DESC,id DESC LIMIT $3`, [options.status || null,options.mine ? this.actor.id : null,Math.max(1,Math.min(Math.floor(options.limit || 100),500))]);
++    return result.rows.map(map);
++  }
++  async review(id: string, input: ReviewCoachFeedbackInput) {
++    if (!/^[a-f0-9-]{36}$/i.test(id)) return undefined;
++    const result = await this.client.query(`UPDATE public.coach_feedback SET status=$1,reviewer_id=$2,review_note=$3,updated_at=now()
++      WHERE id=$4 AND status='pending' RETURNING *`, [input.status,this.actor.id,input.reviewNote || '',id]);
++    return result.rows[0] ? map(result.rows[0]) : undefined;
++  }
++}
+--- before/commerce-coach/server/db.ts
++++ after/commerce-coach/server/db.ts
+@@ -1,19 +1,35 @@
+ import 'dotenv/config';
+-import Database from 'better-sqlite3';
+-import { mkdirSync } from 'node:fs';
+-import path from 'node:path';
+-import { fileURLToPath } from 'node:url';
+-import { initializeCoachFeedbackSchema } from './coach/feedbackStore';
+-export const databasePath = process.env.COACH_DB_PATH || fileURLToPath(new URL('../data/coach.db', import.meta.url));
+-let database: Database.Database | undefined;
+-export function getDb(): Database.Database {
+-  if (!database) {
+-    mkdirSync(path.dirname(databasePath), { recursive: true });
+-    database = new Database(databasePath);
+-    database.pragma('journal_mode = WAL');
+-    database.pragma('busy_timeout = 5000');
+-    initializeCoachFeedbackSchema(database);
++import { Pool, type PoolClient } from 'pg';
++export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
++export const authPool = new Pool({ connectionString: process.env.AUTH_DATABASE_URL, max: 4, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
++export async function checkDatabase() {
++  if (!process.env.DATABASE_URL || !process.env.AUTH_DATABASE_URL) throw new Error('DATABASE_URL is required. Run db:migrate with MIGRATION_DATABASE_URL first.');
++  const { rows } = await pool.query(`SELECT r.rolsuper,r.rolbypassrls,r.rolcreaterole,
++    pg_has_role(current_user,'coach_app','MEMBER') AS app_member,
++    pg_has_role(current_user,'coach_auth','MEMBER') AS auth_member,
++    pg_has_role(current_user,c.relowner,'MEMBER') AS owns_table,
++    EXISTS(SELECT FROM pg_roles elevated WHERE (elevated.rolsuper OR elevated.rolbypassrls OR elevated.rolcreaterole) AND pg_has_role(current_user,elevated.oid,'MEMBER')) AS elevated_membership,
++    c.relrowsecurity,c.relforcerowsecurity FROM pg_roles r,pg_class c
++    WHERE r.rolname=current_user AND c.oid='public.coach_feedback'::regclass`);
++  const row = rows[0];
++  if (!row || row.rolsuper || row.rolbypassrls || row.rolcreaterole || row.owns_table || row.auth_member || row.elevated_membership || !row.app_member || !row.relrowsecurity || !row.relforcerowsecurity) {
++    throw new Error('Unsafe database role: use a non-owner coach_app member without auth-role membership, superuser, CREATEROLE, or BYPASSRLS.');
+   }
+-  return database;
++  const auth = (await authPool.query(`SELECT pg_has_role(current_user,'coach_auth','MEMBER') AS auth_member, pg_has_role(current_user,'coach_app','MEMBER') AS app_member,
++    EXISTS(SELECT FROM pg_roles r WHERE (r.rolsuper OR r.rolbypassrls OR r.rolcreaterole) AND pg_has_role(current_user,r.oid,'MEMBER')) AS elevated,
++    pg_has_role(current_user,(SELECT relowner FROM pg_class WHERE oid='public.coach_feedback'::regclass),'MEMBER') AS owns_table`)).rows[0];
++  if (!auth.auth_member || auth.app_member || auth.elevated || auth.owns_table) throw new Error('Unsafe authentication database role.');
+ }
+-export function closeDb() { database?.close(); database = undefined; }
++export async function withSession<T>(sessionHash: string, action: (client: PoolClient) => Promise<T>): Promise<T> {
++  const client = await pool.connect();
++  try {
++    await client.query('BEGIN');
++    // Transaction-local context is cleared on commit/rollback before pooled connections are reused.
++    await client.query("SELECT set_config('coach.session_hash',$1,true)", [sessionHash]);
++    const result = await action(client);
++    await client.query('COMMIT');
++    return result;
++  } catch (error) { await client.query('ROLLBACK'); throw error; }
++  finally { client.release(); }
++}
++export async function closeDb() { await Promise.all([pool.end(),authPool.end()]); }
+--- before/commerce-coach/server/index.ts
++++ after/commerce-coach/server/index.ts
+@@ -1,6 +1,6 @@
+ import { app } from './app';
+-import { getDb, closeDb } from './db';
+-getDb();
++import { checkDatabase, closeDb } from './db';
++await checkDatabase();
+ const port = Number(process.env.PORT || 4010);
+ const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`Commerce Coach: http://localhost:${port}`));
+-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { closeDb(); process.exit(0); }));
++for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { void closeDb().then(() => process.exit(0)); }));
+--- before/commerce-coach/server/migrate.ts
++++ after/commerce-coach/server/migrate.ts
+@@ -0,0 +1,29 @@
++import 'dotenv/config';
++import { Pool } from 'pg';
++import { readFile } from 'node:fs/promises';
++export async function migrate() {
++  if (!process.env.MIGRATION_DATABASE_URL || !process.env.DATABASE_URL || !process.env.AUTH_DATABASE_URL) throw new Error('Set MIGRATION_DATABASE_URL (owner) and DATABASE_URL and AUTH_DATABASE_URL (separate restricted logins).');
++  const runtime = new URL(process.env.DATABASE_URL);
++  const auth = new URL(process.env.AUTH_DATABASE_URL);
++  if (runtime.username === auth.username) throw new Error('Data and authentication logins must be different.');
++  const admin = new Pool({ connectionString: process.env.MIGRATION_DATABASE_URL });
++  const client = await admin.connect();
++  try {
++    await client.query('BEGIN');
++    await client.query("SELECT pg_advisory_xact_lock(hashtext('commerce-coach-migrate'))");
++    await client.query(await readFile(new URL('./migrations/001_security.sql', import.meta.url), 'utf8'));
++    for (const [connection, group] of [[runtime, 'coach_app'], [auth, 'coach_auth']] as const) {
++      const username = decodeURIComponent(connection.username);
++      const password = decodeURIComponent(connection.password);
++      if (!/^[a-z][a-z0-9_]{0,62}$/.test(username) || ['coach_app','coach_auth'].includes(username) || password.length < 20) throw new Error('Use separate named logins with passwords of at least 20 characters.');
++      const existing = await client.query('SELECT rolsuper,rolbypassrls,rolcreaterole FROM pg_roles WHERE rolname=$1', [username]);
++      if (existing.rows.some(row => row.rolsuper || row.rolbypassrls || row.rolcreaterole)) throw new Error('Refusing a privileged application login.');
++      const action = existing.rowCount ? 'ALTER' : 'CREATE';
++      const sql = (await client.query(`SELECT format('${action} ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L', $1::text, $2::text) AS sql`, [username,password])).rows[0].sql;
++      await client.query(sql);
++      await client.query(`GRANT ${group} TO "${username}"`);
++    }
++    await client.query('COMMIT');
++  } catch (error) { await client.query('ROLLBACK'); throw error; }
++  finally { client.release(); await admin.end(); }
++}
+--- before/commerce-coach/server/migrations/001_security.sql
++++ after/commerce-coach/server/migrations/001_security.sql
+@@ -0,0 +1,176 @@
++-- Run with the migration owner, never the web application's database login.
++CREATE SCHEMA IF NOT EXISTS coach_private;
++REVOKE ALL ON SCHEMA coach_private FROM PUBLIC;
++REVOKE CREATE ON SCHEMA public FROM PUBLIC;
++DO $$ BEGIN
++  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'coach_app') THEN
++    CREATE ROLE coach_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
++  END IF;
++  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'coach_auth') THEN
++    CREATE ROLE coach_auth NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
++  END IF;
++END $$;
++CREATE TABLE IF NOT EXISTS coach_private.organizations (
++ id uuid PRIMARY KEY, slug text UNIQUE NOT NULL, name text NOT NULL
++);
++CREATE TABLE IF NOT EXISTS coach_private.users (
++ id uuid PRIMARY KEY, organization_id uuid NOT NULL REFERENCES coach_private.organizations(id),
++ email text NOT NULL, name text NOT NULL, password_hash text NOT NULL,
++ role text NOT NULL CHECK(role IN ('member','reviewer','admin')), active boolean NOT NULL DEFAULT true,
++ must_change_password boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now(),
++ UNIQUE(organization_id,email), UNIQUE(organization_id,id)
++);
++CREATE TABLE IF NOT EXISTS coach_private.sessions (
++ token_hash text PRIMARY KEY, user_id uuid NOT NULL REFERENCES coach_private.users(id) ON DELETE CASCADE,
++ csrf_token text NOT NULL, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
++);
++CREATE INDEX IF NOT EXISTS sessions_user ON coach_private.sessions(user_id);
++CREATE TABLE IF NOT EXISTS public.coach_feedback (
++ id uuid PRIMARY KEY, organization_id uuid NOT NULL, user_id uuid NOT NULL,
++ response_id text NOT NULL, query text NOT NULL, answer text NOT NULL,
++ rating text NOT NULL CHECK(rating IN ('helpful','unhelpful')),
++ issue_type text CHECK(issue_type IN ('wrong-answer','wrong-screenshots','missing-information','other')),
++ comment text NOT NULL DEFAULT '', suggested_answer text NOT NULL DEFAULT '',
++ screenshot_ids_json jsonb NOT NULL DEFAULT '[]', retrieval_document_ids_json jsonb NOT NULL DEFAULT '[]',
++ provider text NOT NULL DEFAULT '', intent_id text NOT NULL DEFAULT '',
++ status text NOT NULL CHECK(status IN ('recorded','pending','approved','dismissed')),
++ reviewer_id uuid, review_note text NOT NULL DEFAULT '',
++ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
++ FOREIGN KEY(organization_id,user_id) REFERENCES coach_private.users(organization_id,id),
++ FOREIGN KEY(organization_id,reviewer_id) REFERENCES coach_private.users(organization_id,id),
++ UNIQUE(organization_id,user_id,response_id)
++);
++CREATE INDEX IF NOT EXISTS feedback_tenant_status ON public.coach_feedback(organization_id,status,created_at DESC);
++
++-- Identity is resolved from a live server-issued session, not client-asserted role/tenant settings.
++CREATE OR REPLACE FUNCTION public.coach_actor()
++RETURNS TABLE(id uuid, organization_id uuid, email text, name text, role text, organization_name text, organization_slug text, must_change_password boolean, csrf_token text)
++LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
++ SELECT u.id,u.organization_id,u.email,u.name,u.role,o.name,o.slug,u.must_change_password,s.csrf_token
++ FROM coach_private.sessions s JOIN coach_private.users u ON u.id=s.user_id
++ JOIN coach_private.organizations o ON o.id=u.organization_id
++ WHERE s.token_hash=current_setting('coach.session_hash',true) AND s.expires_at>now() AND u.active
++$$;
++CREATE OR REPLACE FUNCTION public.coach_login_lookup(org_slug text, user_email text)
++RETURNS TABLE(id uuid, password_hash text)
++LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
++ SELECT u.id,u.password_hash FROM coach_private.users u JOIN coach_private.organizations o ON o.id=u.organization_id
++ WHERE o.slug=org_slug AND u.email=user_email AND u.active
++$$;
++CREATE OR REPLACE FUNCTION public.coach_open_session(uid uuid, verified_hash text, token text, csrf text)
++RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
++BEGIN
++ PERFORM 1 FROM coach_private.users WHERE id=uid AND password_hash=verified_hash AND active FOR SHARE;
++ IF NOT FOUND THEN RETURN false; END IF;
++ DELETE FROM coach_private.sessions WHERE expires_at<=now();
++ INSERT INTO coach_private.sessions(token_hash,user_id,csrf_token,expires_at) VALUES(token,uid,csrf,now()+interval '12 hours');
++ RETURN true;
++END $$;
++CREATE OR REPLACE FUNCTION public.coach_logout() RETURNS void
++LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $$
++ DELETE FROM coach_private.sessions WHERE token_hash=current_setting('coach.session_hash',true)
++$$;
++CREATE OR REPLACE FUNCTION public.coach_password_hash() RETURNS text
++LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
++ SELECT password_hash FROM coach_private.users WHERE id=(SELECT id FROM public.coach_actor())
++$$;
++CREATE OR REPLACE FUNCTION public.coach_change_password(old_hash text, new_hash text) RETURNS boolean
++LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
++DECLARE uid uuid := (SELECT id FROM public.coach_actor());
++BEGIN
++ UPDATE coach_private.users SET password_hash=new_hash,must_change_password=false WHERE id=uid AND password_hash=old_hash;
++ IF NOT FOUND THEN RETURN false; END IF;
++ DELETE FROM coach_private.sessions WHERE user_id=uid;
++ RETURN true;
++END $$;
++CREATE OR REPLACE FUNCTION public.coach_list_users()
++RETURNS TABLE(id uuid,email text,name text,role text,active boolean,must_change_password boolean)
++LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
++ SELECT u.id,u.email,u.name,u.role,u.active,u.must_change_password FROM coach_private.users u
++ JOIN public.coach_actor() a ON a.organization_id=u.organization_id AND a.role='admin' AND NOT a.must_change_password
++ ORDER BY u.created_at,u.id
++$$;
++CREATE OR REPLACE FUNCTION public.coach_create_user(uid uuid,user_email text,user_name text,hash text,user_role text) RETURNS uuid
++LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
++DECLARE actor record;
++BEGIN
++ SELECT * INTO actor FROM public.coach_actor();
++ IF actor.id IS NULL OR actor.role<>'admin' OR actor.must_change_password THEN RAISE insufficient_privilege; END IF;
++ INSERT INTO coach_private.users(id,organization_id,email,name,password_hash,role)
++ VALUES(uid,actor.organization_id,user_email,user_name,hash,user_role);
++ RETURN uid;
++END $$;
++CREATE OR REPLACE FUNCTION public.coach_update_user(uid uuid,new_role text,new_active boolean,new_hash text DEFAULT NULL) RETURNS boolean
++LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
++DECLARE actor record; target record;
++BEGIN
++ SELECT * INTO actor FROM public.coach_actor();
++ IF actor.id IS NULL OR actor.role<>'admin' OR actor.must_change_password THEN RAISE insufficient_privilege; END IF;
++ -- Serialize membership changes so two concurrent requests cannot remove the last admin.
++ PERFORM 1 FROM coach_private.organizations WHERE id=actor.organization_id FOR UPDATE;
++ SELECT * INTO target FROM coach_private.users WHERE id=uid AND organization_id=actor.organization_id FOR UPDATE;
++ IF NOT FOUND THEN RETURN false; END IF;
++ IF target.role='admin' AND target.active AND (new_role<>'admin' OR NOT new_active)
++ AND (SELECT count(*) FROM coach_private.users WHERE organization_id=actor.organization_id AND role='admin' AND active)<2
++ THEN RAISE EXCEPTION 'The organization must retain an active admin.' USING ERRCODE='23514'; END IF;
++ UPDATE coach_private.users SET role=new_role,active=new_active,password_hash=coalesce(new_hash,password_hash),
++ must_change_password=CASE WHEN new_hash IS NOT NULL THEN true ELSE must_change_password END WHERE id=uid;
++ DELETE FROM coach_private.sessions WHERE user_id=uid;
++ RETURN true;
++END $$;
++
++ALTER TABLE public.coach_feedback ENABLE ROW LEVEL SECURITY;
++ALTER TABLE public.coach_feedback FORCE ROW LEVEL SECURITY;
++DROP POLICY IF EXISTS feedback_read ON public.coach_feedback;
++CREATE POLICY feedback_read ON public.coach_feedback FOR SELECT TO coach_app USING (
++ EXISTS(SELECT FROM public.coach_actor() a WHERE a.organization_id=coach_feedback.organization_id AND NOT a.must_change_password
++ AND (a.id=coach_feedback.user_id OR a.role IN ('reviewer','admin')))
++);
++DROP POLICY IF EXISTS feedback_insert ON public.coach_feedback;
++CREATE POLICY feedback_insert ON public.coach_feedback FOR INSERT TO coach_app WITH CHECK (
++ EXISTS(SELECT FROM public.coach_actor() a WHERE a.organization_id=coach_feedback.organization_id AND a.id=coach_feedback.user_id AND NOT a.must_change_password)
++ AND reviewer_id IS NULL AND review_note='' AND status=CASE WHEN rating='helpful' THEN 'recorded' ELSE 'pending' END
++);
++DROP POLICY IF EXISTS feedback_update ON public.coach_feedback;
++CREATE POLICY feedback_update ON public.coach_feedback FOR UPDATE TO coach_app
++ USING (EXISTS(SELECT FROM public.coach_actor() a WHERE a.organization_id=coach_feedback.organization_id AND NOT a.must_change_password
++ AND (a.id=coach_feedback.user_id OR a.role IN ('reviewer','admin'))))
++ WITH CHECK (EXISTS(SELECT FROM public.coach_actor() a WHERE a.organization_id=coach_feedback.organization_id AND NOT a.must_change_password
++ AND (a.id=coach_feedback.user_id OR a.role IN ('reviewer','admin'))));
++-- RLS controls rows; the trigger separately protects ownership and review-only columns.
++CREATE OR REPLACE FUNCTION public.coach_feedback_guard() RETURNS trigger
++LANGUAGE plpgsql SET search_path=pg_catalog AS $$
++DECLARE actor record;
++BEGIN
++ SELECT * INTO actor FROM public.coach_actor();
++ IF (NEW.id,NEW.organization_id,NEW.user_id,NEW.response_id,NEW.created_at) IS DISTINCT FROM
++    (OLD.id,OLD.organization_id,OLD.user_id,OLD.response_id,OLD.created_at) THEN RAISE insufficient_privilege; END IF;
++ IF NEW.reviewer_id IS NOT NULL THEN
++   IF actor.role NOT IN ('reviewer','admin') OR actor.id<>NEW.reviewer_id OR OLD.status<>'pending'
++     OR NEW.status NOT IN ('approved','dismissed') THEN RAISE insufficient_privilege; END IF;
++   IF (to_jsonb(NEW)-ARRAY['status','reviewer_id','review_note','updated_at']) IS DISTINCT FROM
++      (to_jsonb(OLD)-ARRAY['status','reviewer_id','review_note','updated_at']) THEN RAISE insufficient_privilege; END IF;
++ ELSE
++   IF actor.id<>OLD.user_id OR NEW.review_note<>'' OR NEW.status<>(CASE WHEN NEW.rating='helpful' THEN 'recorded' ELSE 'pending' END)
++   THEN RAISE insufficient_privilege; END IF;
++ END IF;
++ RETURN NEW;
++END $$;
++DROP TRIGGER IF EXISTS feedback_guard ON public.coach_feedback;
++CREATE TRIGGER feedback_guard BEFORE UPDATE ON public.coach_feedback FOR EACH ROW EXECUTE FUNCTION public.coach_feedback_guard();
++REVOKE ALL ON ALL TABLES IN SCHEMA coach_private FROM PUBLIC,coach_app;
++REVOKE ALL ON public.coach_feedback FROM PUBLIC,coach_app;
++GRANT USAGE ON SCHEMA public TO coach_app;
++GRANT SELECT,INSERT,UPDATE ON public.coach_feedback TO coach_app;
++-- SECURITY DEFINER functions are private by default; explicitly expose the narrow API.
++REVOKE ALL ON FUNCTION public.coach_actor(), public.coach_login_lookup(text,text), public.coach_open_session(uuid,text,text,text),
++ public.coach_logout(), public.coach_password_hash(), public.coach_change_password(text,text), public.coach_list_users(),
++ public.coach_create_user(uuid,text,text,text,text), public.coach_update_user(uuid,text,boolean,text), public.coach_feedback_guard() FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION public.coach_actor(), public.coach_login_lookup(text,text), public.coach_open_session(uuid,text,text,text),
++ public.coach_logout(), public.coach_password_hash(), public.coach_change_password(text,text), public.coach_list_users(),
++ public.coach_create_user(uuid,text,text,text,text), public.coach_update_user(uuid,text,boolean,text) TO coach_app;
++
++-- Login verification has its own pool/login; ordinary data queries cannot mint sessions.
++REVOKE EXECUTE ON FUNCTION public.coach_login_lookup(text,text),public.coach_open_session(uuid,text,text,text) FROM coach_app;
++GRANT USAGE ON SCHEMA public TO coach_auth;
++GRANT EXECUTE ON FUNCTION public.coach_login_lookup(text,text),public.coach_open_session(uuid,text,text,text) TO coach_auth;
+--- before/commerce-coach/server/routes/coach.ts
++++ after/commerce-coach/server/routes/coach.ts
+@@ -1,5 +1,4 @@
+ import 'dotenv/config';
+-import { timingSafeEqual } from 'node:crypto';
+ import { Router, type Request, type Response } from 'express';
+ import { getCoachEmbeddingConfig } from '../coach/config';
+ import { OpenRouterEmbeddingProvider } from '../coach/openrouterEmbeddingProvider';
+@@ -8,12 +7,13 @@
+   type CoachRetrievalKind,
+ } from '../coach/retrievalService';
+ import {
+-  CoachFeedbackStore,
+   type CoachFeedbackIssueType,
+   type CoachFeedbackRating,
+   type CoachFeedbackStatus,
+ } from '../coach/feedbackStore';
+-import { getDb } from '../db';
++import { withSession } from '../db';
++import { PgFeedbackStore } from '../coach/pgFeedbackStore';
++import { asyncRoute, requireRole } from '../auth/middleware';
+ 
+ const router = Router();
+ const config = getCoachEmbeddingConfig();
+@@ -49,8 +49,8 @@
+ ]);
+ const requestBuckets = new Map<string, { count: number; resetAt: number }>();
+ 
+-function getFeedbackStore(): CoachFeedbackStore {
+-  return new CoachFeedbackStore(getDb());
++function store<T>(request: Request, action: (store: PgFeedbackStore) => Promise<T>) {
++  return withSession(request.sessionHash!, client => action(new PgFeedbackStore(client, request.actor!)));
+ }
+ 
+ function readString(value: unknown, maxLength: number): string | undefined {
+@@ -66,16 +66,6 @@
+   return strings.every((item): item is string => Boolean(item)) ? strings : undefined;
+ }
+ 
+-function requireReviewer(request: Request, response: Response): string | undefined {
+-  const expected = process.env.COACH_REVIEW_TOKEN;
+-  const supplied = request.headers.authorization?.replace(/^Bearer /, '');
+-  if (!expected || !supplied || Buffer.byteLength(expected) !== Buffer.byteLength(supplied)
+-      || !timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) {
+-    response.status(403).json({ error: 'A valid reviewer token is required.' });
+-    return undefined;
+-  }
+-  return 'standalone-reviewer';
+-}
+ 
+ function isRateLimited(request: Request): boolean {
+   const now = Date.now();
+@@ -94,11 +84,11 @@
+   return bucket.count > RATE_LIMIT_REQUESTS;
+ }
+ 
+-router.get('/embeddings/status', async (_request: Request, response: Response) => {
++router.get('/embeddings/status', asyncRoute(async (_request: Request, response: Response) => {
+   response.json(await retrieval.getStatus());
+-});
+-
+-router.post('/feedback', (request: Request, response: Response) => {
++}));
++
++router.post('/feedback', asyncRoute(async (request: Request, response: Response) => {
+   if (isRateLimited(request)) {
+     response.status(429).json({ error: 'Too many Coach requests. Please try again shortly.' });
+     return;
+@@ -125,7 +115,7 @@
+     return;
+   }
+ 
+-  const feedback = getFeedbackStore().save({
++  const feedback = await store(request, feedbackStore => feedbackStore.save({
+     responseId,
+     query,
+     answer,
+@@ -139,12 +129,15 @@
+     retrievalDocumentIds,
+     ...(readString(request.body?.provider, 100) ? { provider: request.body.provider.trim() } : {}),
+     ...(readString(request.body?.intentId, 200) ? { intentId: request.body.intentId.trim() } : {}),
+-  });
++  }));
+   response.status(201).json({ feedback });
+-});
+-
+-router.get('/feedback', (request: Request, response: Response) => {
+-  if (!requireReviewer(request, response)) return;
++}));
++
++router.get('/feedback/mine', asyncRoute(async (request, response) => {
++  response.json({ items: await store(request, feedbackStore => feedbackStore.list({ mine: true })) });
++}));
++
++router.get('/feedback', requireRole('reviewer', 'admin'), asyncRoute(async (request: Request, response: Response) => {
+   const requestedStatus = request.query.status;
+   const status = typeof requestedStatus === 'string'
+     ? requestedStatus as CoachFeedbackStatus
+@@ -154,34 +147,33 @@
+     return;
+   }
+   const requestedLimit = Number(request.query.limit);
+-  const items = getFeedbackStore().list({
++  const items = await store(request, feedbackStore => feedbackStore.list({
+     status,
+     limit: Number.isFinite(requestedLimit) ? requestedLimit : undefined,
+-  });
++  }));
+   response.json({ items });
+-});
+-
+-router.patch('/feedback/:id', (request: Request, response: Response) => {
+-  const reviewerId = requireReviewer(request, response);
+-  if (!reviewerId) return;
++}));
++
++router.patch('/feedback/:id', requireRole('reviewer', 'admin'), asyncRoute(async (request: Request, response: Response) => {
++  const reviewerId = request.actor!.id;
+   const status = request.body?.status;
+   if (status !== 'approved' && status !== 'dismissed') {
+     response.status(400).json({ error: 'status must be approved or dismissed.' });
+     return;
+   }
+-  const feedback = getFeedbackStore().review(request.params.id, {
++  const feedback = await store(request, feedbackStore => feedbackStore.review(request.params.id, {
+     status,
+     reviewerId,
+     ...(readString(request.body?.reviewNote, 2_000) ? { reviewNote: request.body.reviewNote.trim() } : {}),
+-  });
++  }));
+   if (!feedback) {
+     response.status(404).json({ error: 'Feedback not found.' });
+     return;
+   }
+   response.json({ feedback });
+-});
+-
+-router.post('/retrieve', async (request: Request, response: Response) => {
++}));
++
++router.post('/retrieve', asyncRoute(async (request: Request, response: Response) => {
+   if (isRateLimited(request)) {
+     response.status(429).json({ error: 'Too many Coach retrieval requests. Please try again shortly.' });
+     return;
+@@ -209,6 +201,6 @@
+     limit: Number.isFinite(requestedLimit) ? requestedLimit : undefined,
+   });
+   response.json(result);
+-});
++}));
+ 
+ export default router;
+--- before/commerce-coach/server/security.test.ts
++++ after/commerce-coach/server/security.test.ts
+@@ -0,0 +1,142 @@
++import 'dotenv/config';
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++import { randomUUID } from 'node:crypto';
++import { Pool } from 'pg';
++import { hashPassword, digest, randomToken } from './auth/password';
++
++test('authentication, organization RBAC, and native PostgreSQL RLS', async t => {
++  if (!process.env.TEST_DATABASE_ADMIN_URL) throw new Error('Set TEST_DATABASE_ADMIN_URL. Tests create and remove a separate temporary database and runtime login.');
++  const base = new URL(process.env.TEST_DATABASE_ADMIN_URL);
++  const database = `coach_test_${randomUUID().replaceAll('-','')}`;
++  const runtimeName = database;
++  const owner = new Pool({ connectionString: base.toString() });
++  await owner.query(`CREATE DATABASE "${database}"`);
++  const migration = new URL(base); migration.pathname = `/${database}`;
++  const runtime = new URL(migration); runtime.username = runtimeName; runtime.password = randomToken();
++  const authConnection = new URL(runtime); authConnection.username = runtimeName + '_auth';
++  process.env.AUTH_DATABASE_URL = authConnection.toString();
++  process.env.MIGRATION_DATABASE_URL = migration.toString(); process.env.DATABASE_URL = runtime.toString();
++  process.env.OPENROUTER_API_KEY=''; process.env.GEMINI_API_KEY=''; process.env.VITE_OPENROUTER_API_KEY='';
++  process.env.NODE_ENV='test'; process.env.COOKIE_SECURE='false';
++  let cleanup: (() => Promise<void>) | undefined;
++  t.after(async () => {
++    await cleanup?.();
++    await owner.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
++    await owner.query(`DROP ROLE IF EXISTS "${runtimeName}"`);
++    await owner.query(`DROP ROLE IF EXISTS "${runtimeName}_auth"`);
++    await owner.end();
++  });
++  const { migrate } = await import('./migrate');
++  await migrate(); await migrate(); // Repeat deployment must preserve data and policies.
++  const admin = new Pool({ connectionString: migration.toString() });
++  cleanup = () => admin.end();
++  const { app } = await import('./app');
++  const { pool, withSession, checkDatabase, closeDb } = await import('./db');
++  const password='Correct horse battery staple 2026';
++  const hash=await hashPassword(password);
++  const orgA=randomUUID(), orgB=randomUUID();
++  await admin.query('INSERT INTO coach_private.organizations(id,slug,name) VALUES($1,\'alpha\',\'Alpha\'),($2,\'beta\',\'Beta\')',[orgA,orgB]);
++  const ids: Record<string,string>={};
++  for(const [name,org,role] of [['admin',orgA,'admin'],['reviewer',orgA,'reviewer'],['member',orgA,'member'],['other',orgA,'member'],['beta',orgB,'admin']]){
++    ids[name]=randomUUID();
++    await admin.query(`INSERT INTO coach_private.users(id,organization_id,email,name,password_hash,role,must_change_password) VALUES($1,$2,$3,$4,$5,$6,false)`,[ids[name],org,`${name}@example.com`,name,hash,role]);
++  }
++  const server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));
++  cleanup = async () => { await new Promise<void>(resolve => server.close(() => resolve())); await closeDb(); await admin.end(); };
++  const url=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
++  type Login={cookie:string;csrf:string;token:string;user:any};
++  const request=(path:string,login?:Login,body?:unknown,method=body===undefined?'GET':'POST',extra={})=>fetch(url+path,{method,headers:{'Content-Type':'application/json','X-Coach-Request':'1',...(login?{Cookie:login.cookie,'X-CSRF-Token':login.csrf}:{}),...extra},...(body===undefined?{}:{body:JSON.stringify(body)})});
++  const signIn=async(name:string,org='alpha',pass=password):Promise<Login>=>{
++    const response=await request('/api/auth/login',undefined,{organization:org,email:`${name}@example.com`,password:pass});
++    assert.equal(response.status,200);
++    const cookieHeader=response.headers.get('set-cookie')!;assert.match(cookieHeader,/HttpOnly/);assert.match(cookieHeader,/SameSite=Strict/);
++    const cookie=cookieHeader.split(';')[0];const token=cookie.split('=')[1];
++    const provisional={cookie,csrf:'',token,user:null};
++    const me=await (await request('/api/auth/me',provisional)).json();
++    return {...provisional,csrf:me.user.csrf_token,user:me.user};
++  };
++  let member:Login,other:Login,reviewer:Login,alphaAdmin:Login,beta:Login;
++  let feedbackId:string, betaFeedbackId:string;
++  try {
++    await t.test('runtime cannot bypass RLS and private auth tables are inaccessible',async()=>{
++      await checkDatabase();
++      const flags=(await pool.query("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='public.coach_feedback'::regclass")).rows[0];
++      assert.deepEqual(flags,{relrowsecurity:true,relforcerowsecurity:true});
++      await assert.rejects(pool.query('SELECT * FROM coach_private.users'),{code:'42501'});
++      await assert.rejects(pool.query("SELECT * FROM public.coach_login_lookup('alpha','admin@example.com')"),{code:'42501'});
++      await assert.rejects(pool.query("SELECT public.coach_open_session($1,'hash','token','csrf')",[ids.admin]),{code:'42501'});
++      await assert.rejects(pool.query('TRUNCATE public.coach_feedback'),{code:'42501'});
++      await assert.rejects(pool.query('ALTER TABLE public.coach_feedback DISABLE ROW LEVEL SECURITY'),{code:'42501'});
++    });
++    await t.test('all application APIs require sign-in; forged headers and shared token do not authenticate',async()=>{
++      for(const [path,body] of [['/api/config',undefined],['/api/coach/retrieve',{query:'orders'}],['/api/coach/generate',{}],['/api/coach/feedback',{}],['/api/users',undefined]] as const){
++        assert.equal((await request(path,undefined,body,body === undefined ? 'GET' : 'POST',{'x-user-id':ids.admin,'x-user-role':'admin',Authorization:'Bearer local-browser-test-token'})).status,401);
++      }
++      assert.equal((await request('/api/auth/login',undefined,{organization:'alpha',email:'admin@example.com',password:'wrong'})).status,401);
++    });
++    await t.test('individual sign-in binds role and organization to database sessions',async()=>{
++      member=await signIn('member');other=await signIn('other');reviewer=await signIn('reviewer');alphaAdmin=await signIn('admin');beta=await signIn('beta','beta');
++      assert.equal(member.user.role,'member');assert.equal(member.user.organization_id,orgA);
++      assert.equal(beta.user.organization_id,orgB);
++      const stored=(await admin.query('SELECT token_hash FROM coach_private.sessions WHERE user_id=$1',[ids.member])).rows[0];
++      assert.equal(stored.token_hash,digest(member.token));assert.notEqual(stored.token_hash,member.token);
++    });
++    await t.test('CSRF protection rejects missing tokens and foreign origins',async()=>{
++      assert.equal((await request('/api/coach/feedback',member,{},'POST',{'X-CSRF-Token':''})).status,403);
++      assert.equal((await request('/api/auth/login',undefined,{},'POST',{Origin:'https://attacker.example'})).status,403);
++      assert.equal((await request('/api/auth/logout',member,{},'POST',{'X-Coach-Request':''})).status,403);
++    });
++    await t.test('members submit only their own tenant feedback and cannot access reviewer/admin APIs',async()=>{
++      for(const path of ['/api/coach/feedback','/api/users'])assert.equal((await request(path,member)).status,403);
++      const input={responseId:'same-response',query:'Where are orders?',answer:'Wrong answer',rating:'unhelpful',issueType:'wrong-answer',organization_id:orgB,user_id:ids.beta,role:'admin'};
++      const saved=await request('/api/coach/feedback',member,input);assert.equal(saved.status,201);feedbackId=(await saved.json()).feedback.id;
++      assert.equal((await request('/api/coach/feedback',other,input)).status,201);
++      const b=await request('/api/coach/feedback',beta,input);assert.equal(b.status,201);betaFeedbackId=(await b.json()).feedback.id;
++      const row=(await admin.query('SELECT organization_id,user_id FROM public.coach_feedback WHERE id=$1',[feedbackId])).rows[0];
++      assert.deepEqual(row,{organization_id:orgA,user_id:ids.member});
++      const mine=await (await request('/api/coach/feedback/mine',member)).json();assert.equal(mine.items.length,1);assert.equal(mine.items[0].id,feedbackId);
++      assert.equal((await request(`/api/coach/feedback/${feedbackId}`,member,{status:'approved'},'PATCH')).status,403);
++    });
++    await t.test('database RLS blocks cross-tenant reads/writes and ignores forged identity settings',async()=>{
++      assert.equal((await pool.query('SELECT * FROM public.coach_feedback')).rowCount,0);
++      const own=await withSession(digest(member.token),client=>client.query('SELECT * FROM public.coach_feedback'));
++      assert.equal(own.rowCount,1);assert.equal(own.rows[0].id,feedbackId);
++      const cross=await withSession(digest(alphaAdmin.token),client=>client.query('SELECT * FROM public.coach_feedback WHERE id=$1',[betaFeedbackId]));assert.equal(cross.rowCount,0);
++      const forged=await withSession('not-a-session',async client=>{await client.query("SELECT set_config('coach.organization_id',$1,true),set_config('coach.role','admin',true)",[orgB]);return client.query('SELECT * FROM public.coach_feedback');});assert.equal(forged.rowCount,0);
++      await assert.rejects(withSession(digest(member.token),client=>client.query('UPDATE public.coach_feedback SET organization_id=$1 WHERE id=$2',[orgB,feedbackId])),{code:'42501'});
++      await assert.rejects(withSession(digest(member.token),client=>client.query("UPDATE public.coach_feedback SET status='approved',reviewer_id=$1 WHERE id=$2",[ids.member,feedbackId])),{code:'42501'});
++      await assert.rejects(withSession(digest(member.token),client=>client.query(`INSERT INTO public.coach_feedback(id,organization_id,user_id,response_id,query,answer,rating,status) VALUES($1,$2,$3,'foreign','q','a','helpful','recorded')`,[randomUUID(),orgB,ids.beta])),{code:'42501'});
++      assert.equal((await pool.query('SELECT * FROM public.coach_feedback')).rowCount,0,'session context must not leak across pool reuse');
++    });
++    await t.test('reviewers see their organization only and decisions record the actual reviewer',async()=>{
++      const list=await (await request('/api/coach/feedback',reviewer)).json();assert.equal(list.items.length,2);
++      assert.equal((await request(`/api/coach/feedback/${betaFeedbackId}`,reviewer,{status:'approved'},'PATCH')).status,404);
++      assert.equal((await request('/api/users',reviewer)).status,403);
++      const result=await request(`/api/coach/feedback/${feedbackId}`,reviewer,{status:'approved',reviewerId:ids.beta},'PATCH');assert.equal(result.status,200);assert.equal((await result.json()).feedback.reviewerId,ids.reviewer);
++    });
++    await t.test('admin account management stays in the organization and prevents removal of the last admin',async()=>{
++      assert.equal((await request(`/api/users/${ids.beta}`,alphaAdmin,{role:'member',active:false},'PATCH')).status,404);
++      assert.equal((await request(`/api/users/${ids.admin}`,alphaAdmin,{role:'member',active:true},'PATCH')).status,409);
++      const users=await (await request('/api/users',alphaAdmin)).json();assert.equal(users.users.length,4);assert.ok(users.users.every((u:any)=>!('password_hash' in u)));
++      assert.equal((await request('/api/users',member,{email:'escalate@example.com',name:'Bad',role:'admin',password})).status,403);
++      assert.equal((await request('/api/users',alphaAdmin,{email:'new@example.com',name:'New user',role:'member',password})).status,201);
++      const temporary=await signIn('new');assert.equal(temporary.user.must_change_password,true);
++      assert.equal((await request('/api/config',temporary)).status,403);
++      const nextPassword='A different strong passphrase 2026';
++      assert.equal((await request('/api/auth/password',temporary,{currentPassword:password,newPassword:nextPassword})).status,200);
++      assert.equal((await request('/api/auth/me',temporary)).status,401);
++      const changed=await signIn('new','alpha',nextPassword);assert.equal(changed.user.must_change_password,false);
++    });
++    await t.test('role changes, disabled accounts, logout, and expiry invalidate sessions',async()=>{
++      assert.equal((await request(`/api/users/${ids.reviewer}`,alphaAdmin,{role:'member',active:true},'PATCH')).status,200);
++      assert.equal((await request('/api/auth/me',reviewer)).status,401);
++      const demoted=await signIn('reviewer');assert.equal((await request('/api/coach/feedback',demoted)).status,403);
++      assert.equal((await request(`/api/users/${ids.other}`,alphaAdmin,{role:'member',active:false},'PATCH')).status,200);
++      assert.equal((await request('/api/auth/me',other)).status,401);
++      assert.equal((await request('/api/auth/logout',member,{})).status,200);assert.equal((await request('/api/auth/me',member)).status,401);
++      await admin.query("UPDATE coach_private.sessions SET expires_at=now()-interval '1 second' WHERE user_id=$1",[ids.beta]);
++      assert.equal((await request('/api/auth/me',beta)).status,401);
++    });
++  } finally { /* t.after also cleans up when setup or an assertion fails. */ }
++});
+--- before/commerce-coach/src/auth/AppShell.tsx
++++ after/commerce-coach/src/auth/AppShell.tsx
+@@ -0,0 +1,15 @@
++import { useState } from 'react';
++import CommerceCoachPage from '../pages/CommerceCoachPage';
++import { useAuth,PasswordForm } from './AuthContext';
++import { UsersPanel } from './UsersPanel';
++export function AppShell(){
++  const {user,logout}=useAuth();const [page,setPage]=useState('coach');const [error,setError]=useState('');
++  return <div className="flex h-dvh flex-col"><header className="flex flex-wrap items-center gap-3 border-b bg-white px-4 py-2 text-sm">
++    <strong className="mr-auto">{user.organization_name}</strong><span>{user.name} · {user.role}</span>
++    <button className="text-violet-700" onClick={()=>setPage('coach')}>Coach</button>
++    {user.role==='admin'&&<button className="text-violet-700" onClick={()=>setPage('users')}>Team access</button>}
++    <button className="text-violet-700" onClick={()=>setPage('password')}>Change password</button>
++    <button onClick={()=>void logout().catch(e=>setError(e.message))}>Sign out</button>
++  </header>{error&&<p role="alert" className="bg-red-50 p-2 text-red-700">{error}</p>}
++  <main className="min-h-0 flex-1">{page==='users'&&user.role==='admin'?<UsersPanel/>:page==='password'?<div className="grid h-full place-items-center bg-gray-50 p-6"><PasswordForm done={()=>window.dispatchEvent(new Event('coach-session-expired'))}/></div>:<CommerceCoachPage/>}</main></div>;
++}
+--- before/commerce-coach/src/auth/AuthContext.tsx
++++ after/commerce-coach/src/auth/AuthContext.tsx
+@@ -0,0 +1,57 @@
++import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
++import { api, authFetch, setCsrfToken } from './client';
++import { loadProviders } from '../coach/providerClient';
++export interface User { id: string; organization_id: string; organization_name: string; organization_slug: string; name: string; email: string; role: 'admin' | 'reviewer' | 'member'; must_change_password: boolean; }
++const AuthContext = createContext<{ user: User; logout: () => Promise<void> } | null>(null);
++export function useAuth() { const context = useContext(AuthContext); if (!context) throw new Error('Sign-in is required.'); return context; }
++export function PasswordForm({ done }: { done: () => void }) {
++  const [error,setError]=useState(''); const [busy,setBusy]=useState(false);
++  return <form className="mx-auto w-full max-w-sm space-y-4 rounded-2xl border border-gray-200 bg-white p-6" onSubmit={async event => {
++    event.preventDefault();const data=new FormData(event.currentTarget);setBusy(true);setError('');
++    if(data.get('newPassword')!==data.get('confirm')) {setError('New passwords must match.');setBusy(false);return;}
++    try {await api('/api/auth/password',{currentPassword:data.get('currentPassword'),newPassword:data.get('newPassword')});done();}
++    catch(e) {setError((e as Error).message);}finally {setBusy(false);}
++  }}>
++    <h1 className="text-xl font-semibold">Change password</h1><p className="text-sm text-gray-500">Choose at least 12 characters. You’ll sign in again afterward.</p>
++    <label className="block text-sm">Current password<input required type="password" name="currentPassword" autoComplete="current-password" className="mt-1 w-full rounded-lg border p-2" /></label>
++    <label className="block text-sm">New password<input required minLength={12} maxLength={256} type="password" name="newPassword" autoComplete="new-password" className="mt-1 w-full rounded-lg border p-2" /></label>
++    <label className="block text-sm">Confirm new password<input required type="password" name="confirm" autoComplete="new-password" className="mt-1 w-full rounded-lg border p-2" /></label>
++    {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}
++    <button disabled={busy} className="w-full rounded-lg bg-violet-600 p-2 text-white disabled:opacity-50">{busy?'Saving…':'Save password'}</button>
++  </form>;
++}
++export function AuthProvider({children}:{children:ReactNode}) {
++  const [user,setUser]=useState<User|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [busy,setBusy]=useState(false);
++  const clear=()=>{setUser(null);setCsrfToken('');};
++  const refresh=async()=>{
++    try {
++      const response=await authFetch('/api/auth/me');
++      if(response.status===401) {clear();return;}
++      if(!response.ok) throw new Error('The server is unavailable. Please try again.');
++      const {user:next}=await response.json();setCsrfToken(next.csrf_token);
++      if(!next.must_change_password) await loadProviders();
++      setUser(next);setError('');
++    } catch(e) {setError((e as Error).message);}finally {setLoading(false);}
++  };
++  useEffect(()=>{
++    void refresh();
++    const expired=()=>clear();const visible=()=>{if(document.visibilityState==='visible')void refresh();};
++    window.addEventListener('coach-session-expired',expired);document.addEventListener('visibilitychange',visible);
++    const timer=setInterval(()=>void refresh(),60000);
++    return()=>{window.removeEventListener('coach-session-expired',expired);document.removeEventListener('visibilitychange',visible);clearInterval(timer);};
++  },[]);
++  const logout=async()=>{await api('/api/auth/logout',{});clear();};
++  if(loading)return <div className="grid min-h-dvh place-items-center text-gray-500">Loading Commerce Coach…</div>;
++  if(user?.must_change_password)return <div className="grid min-h-dvh place-items-center bg-gray-50 p-6"><div><p className="mb-4 text-center text-sm text-gray-600">Welcome, {user.name}. Set your own password to continue.</p><PasswordForm done={clear}/><button className="mt-4 text-sm text-violet-700" onClick={()=>void logout().catch(e=>setError(e.message))}>Sign out</button>{error&&<p role="alert">{error}</p>}</div></div>;
++  if(!user)return <div className="grid min-h-dvh place-items-center bg-gray-50 p-6"><form className="w-full max-w-sm space-y-4 rounded-2xl border border-gray-200 bg-white p-7 shadow-sm" onSubmit={async event=>{
++    event.preventDefault();const data=new FormData(event.currentTarget);setBusy(true);setError('');
++    try{await api('/api/auth/login',{organization:data.get('organization'),email:data.get('email'),password:data.get('password')});await refresh();}
++    catch(e){setError((e as Error).message);}finally{setBusy(false);}
++  }}><div><div className="mb-2 text-sm font-semibold text-violet-600">Commerce Coach</div><h1 className="text-2xl font-bold">Sign in to your workspace</h1><p className="mt-2 text-sm text-gray-500">Use the account provided by your organization’s admin.</p></div>
++    <label className="block text-sm">Organization<input required name="organization" autoComplete="organization" placeholder="pathao" className="mt-1 w-full rounded-lg border p-2.5" /></label>
++    <label className="block text-sm">Email<input required type="email" name="email" autoComplete="username" className="mt-1 w-full rounded-lg border p-2.5" /></label>
++    <label className="block text-sm">Password<input required type="password" name="password" autoComplete="current-password" className="mt-1 w-full rounded-lg border p-2.5" /></label>
++    {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}<button disabled={busy} className="w-full rounded-lg bg-violet-600 p-2.5 font-semibold text-white disabled:opacity-50">{busy?'Signing in…':'Sign in'}</button>
++  </form></div>;
++  return <AuthContext.Provider value={{user,logout}}>{children}</AuthContext.Provider>;
++}
+--- before/commerce-coach/src/auth/UsersPanel.tsx
++++ after/commerce-coach/src/auth/UsersPanel.tsx
+@@ -0,0 +1,34 @@
++import { useEffect,useState } from 'react';
++import { api } from './client';
++interface Member {id:string;name:string;email:string;role:string;active:boolean;must_change_password:boolean;}
++export function UsersPanel(){
++  const [users,setUsers]=useState<Member[]>([]);const [error,setError]=useState('');const [notice,setNotice]=useState('');const [busy,setBusy]=useState(false);
++  const load=async()=>{try{setUsers((await api('/api/users')).users);}catch(e){setError((e as Error).message);}};
++  useEffect(()=>{void load();},[]);
++  return <div className="h-full overflow-y-auto bg-gray-50 p-6"><div className="mx-auto max-w-4xl space-y-6">
++    <div><h1 className="text-xl font-bold">Team access</h1><p className="mt-1 text-sm text-gray-500">Manage accounts within your organization. Role, access, and password changes revoke that user’s sessions.</p></div>
++    {error&&<p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}{notice&&<p role="status" className="rounded bg-green-50 p-3 text-green-800">{notice}</p>}
++    <form className="grid gap-3 rounded-xl border bg-white p-5 sm:grid-cols-2" onSubmit={async event=>{
++      event.preventDefault();const form=event.currentTarget;const data=new FormData(form);setBusy(true);setError('');setNotice('');
++      try{await api('/api/users',Object.fromEntries(data));form.reset();setNotice('Account created. Share the temporary password privately; the user must change it on first sign-in.');await load();}
++      catch(e){setError((e as Error).message);}finally{setBusy(false);}
++    }}>
++      <h2 className="font-semibold sm:col-span-2">Add user</h2>
++      <label className="text-sm">Name<input required name="name" maxLength={100} className="mt-1 w-full rounded border p-2" /></label>
++      <label className="text-sm">Email<input required type="email" name="email" className="mt-1 w-full rounded border p-2" /></label>
++      <label className="text-sm">Role<select name="role" className="mt-1 w-full rounded border p-2"><option value="member">Member</option><option value="reviewer">Reviewer</option><option value="admin">Admin</option></select></label>
++      <label className="text-sm">Temporary password<input required minLength={12} maxLength={256} type="password" name="password" autoComplete="new-password" className="mt-1 w-full rounded border p-2" /></label>
++      <button disabled={busy} className="rounded bg-violet-600 px-4 py-2 text-white disabled:opacity-50">Create account</button>
++    </form>
++    <div className="space-y-3">{users.map(user=><form key={`${user.id}-${user.role}-${user.active}`} className="flex flex-wrap items-end gap-3 rounded-xl border bg-white p-4" onSubmit={async event=>{
++      event.preventDefault();const data=new FormData(event.currentTarget);setBusy(true);setError('');setNotice('');
++      try{await api(`/api/users/${user.id}`,{role:data.get('role'),active:data.get('active')==='true',...(data.get('password')?{password:data.get('password')}:{})},'PATCH');setNotice('Access updated. Existing sessions were revoked.');await load();}
++      catch(e){setError((e as Error).message);}finally{setBusy(false);}
++    }}><div className="min-w-48 flex-1"><div className="font-medium">{user.name}</div><div className="text-sm text-gray-500">{user.email}</div>{user.must_change_password&&<div className="text-xs text-amber-700">Password change required</div>}</div>
++      <label className="text-xs">Role<select aria-label={`Role for ${user.email}`} name="role" defaultValue={user.role} className="mt-1 block rounded border p-2"><option value="member">Member</option><option value="reviewer">Reviewer</option><option value="admin">Admin</option></select></label>
++      <label className="text-xs">Access<select aria-label={`Access for ${user.email}`} name="active" defaultValue={String(user.active)} className="mt-1 block rounded border p-2"><option value="true">Active</option><option value="false">Disabled</option></select></label>
++      <label className="text-xs">Reset password (optional)<input aria-label={`Reset password for ${user.email}`} name="password" type="password" minLength={12} autoComplete="new-password" className="mt-1 block w-44 rounded border p-2" /></label>
++      <button disabled={busy} className="rounded border px-3 py-2 text-sm disabled:opacity-50">Save access</button>
++    </form>)}</div>
++  </div></div>;
++}
+--- before/commerce-coach/src/auth/client.ts
++++ after/commerce-coach/src/auth/client.ts
+@@ -0,0 +1,19 @@
++let csrfToken = '';
++export const setCsrfToken = (value: string) => { csrfToken = value; };
++export async function authFetch(url: string, init: RequestInit = {}) {
++  const headers = new Headers(init.headers);
++  headers.set('X-Coach-Request', '1');
++  if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
++  const response = await fetch(url, { ...init, headers, credentials: 'same-origin' });
++  if (response.status === 401 && url !== '/api/auth/login' && url !== '/api/auth/me') window.dispatchEvent(new Event('coach-session-expired'));
++  return response;
++}
++export async function api<T = any>(url: string, body?: unknown, method?: string): Promise<T> {
++  const response = await authFetch(url, { method: method || (body === undefined ? 'GET' : 'POST'),
++    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
++    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
++  });
++  const result = await response.json();
++  if (!response.ok) throw new Error(result.error || 'Request failed.');
++  return result;
++}
+--- before/commerce-coach/src/coach/CoachFeedbackReviewPanel.tsx
++++ after/commerce-coach/src/coach/CoachFeedbackReviewPanel.tsx
+@@ -1,3 +1,4 @@
++import { useAuth } from '../auth/AuthContext';
+ import { useCallback, useEffect, useState } from 'react';
+ import {
+   CheckCircle2,
+@@ -11,7 +12,6 @@
+   listCoachFeedback,
+   reviewCoachFeedback,
+   type CoachFeedbackRecord,
+-  type CoachFeedbackReviewer,
+ } from './feedback';
+ 
+ const ISSUE_LABELS: Record<string, string> = {
+@@ -22,39 +22,36 @@
+ };
+ 
+ export function CoachFeedbackReviewPanel() {
+-  const [token, setToken] = useState('');
+-  const [draftToken, setDraftToken] = useState('');
+-  const isInternal = Boolean(token);
++  const { user } = useAuth();
++  const isInternal = user.role === 'admin' || user.role === 'reviewer';
+   const [items, setItems] = useState<CoachFeedbackRecord[]>([]);
+   const [isLoading, setIsLoading] = useState(false);
+   const [reviewingId, setReviewingId] = useState<string>();
+   const [error, setError] = useState('');
+ 
+-  const reviewer: CoachFeedbackReviewer | undefined = token ? { id: 'reviewer', role: 'admin', token } : undefined;
+-
+   const loadQueue = useCallback(async () => {
+-    if (!reviewer) return;
++    if (!isInternal) return;
+     setIsLoading(true);
+     setError('');
+     try {
+-      setItems(await listCoachFeedback(reviewer));
++      setItems(await listCoachFeedback());
+     } catch {
+       setError('The feedback queue could not be loaded.');
+     } finally {
+       setIsLoading(false);
+     }
+-  }, [reviewer?.token]);
++  }, [user.id, user.role]);
+ 
+   useEffect(() => {
+     void loadQueue();
+   }, [loadQueue]);
+ 
+   const handleReview = async (item: CoachFeedbackRecord, status: 'approved' | 'dismissed') => {
+-    if (!reviewer) return;
++    if (!isInternal) return;
+     setReviewingId(item.id);
+     setError('');
+     try {
+-      await reviewCoachFeedback(item.id, status, reviewer);
++      await reviewCoachFeedback(item.id, status);
+       setItems((current) => current.filter(({ id }) => id !== item.id));
+     } catch {
+       setError('The review decision could not be saved.');
+@@ -63,7 +60,7 @@
+     }
+   };
+ 
+-  if (!isInternal || !reviewer) {
++  if (!isInternal) {
+     return (
+       <div className="flex flex-1 items-center justify-center p-8">
+         <div className="max-w-md rounded-2xl border border-gray-200 bg-white p-7 text-center shadow-sm">
+@@ -73,17 +70,14 @@
+             Anyone can report a bad answer. Only an internal reviewer or admin can approve a correction,
+             so feedback never changes Coach by itself.
+           </p>
+-          <form className="mt-4 flex gap-2" onSubmit={(event) => { event.preventDefault(); setToken(draftToken.trim()); }}>
+-            <input aria-label="Reviewer token" type="password" value={draftToken} onChange={(event) => setDraftToken(event.target.value)} placeholder="Reviewer token" className="min-w-0 flex-1 rounded border p-2" required />
+-            <button className="rounded bg-violet-600 px-3 text-white">Unlock</button>
+-          </form>
++
+         </div>
+       </div>
+     );
+   }
+ 
+   return (
+-    <div className="flex-1 overflow-y-auto p-6"><button className="mb-3 text-sm text-violet-700" onClick={() => { setToken(''); setDraftToken(''); setItems([]); }}>Lock review access</button>
++    <div className="flex-1 overflow-y-auto p-6">
+       <div className="mx-auto max-w-4xl">
+         <div className="mb-5 flex items-start justify-between gap-4">
+           <div>
+--- before/commerce-coach/src/coach/feedback.ts
++++ after/commerce-coach/src/coach/feedback.ts
+@@ -1,3 +1,4 @@
++import { authFetch } from '../auth/client';
+ import type { ChatMessage } from './responseEngine';
+ 
+ export type CoachFeedbackRating = 'helpful' | 'unhelpful';
+@@ -34,12 +35,6 @@
+   updatedAt: string;
+ }
+ 
+-export interface CoachFeedbackReviewer {
+-  token: string;
+-  id: string;
+-  role: 'internal' | 'admin';
+-}
+-
+ export function findFeedbackQuery(messages: ChatMessage[], responseId: string): string | undefined {
+   const responseIndex = messages.findIndex(({ id }) => id === responseId);
+   for (let index = responseIndex - 1; index >= 0; index -= 1) {
+@@ -49,7 +44,7 @@
+ }
+ 
+ export async function submitCoachFeedback(input: SubmitCoachFeedbackInput): Promise<void> {
+-  const response = await fetch('/api/coach/feedback', {
++  const response = await authFetch('/api/coach/feedback', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify(input),
+@@ -57,19 +52,11 @@
+   if (!response.ok) throw new Error('Could not save Coach feedback.');
+ }
+ 
+-function reviewerHeaders(reviewer: CoachFeedbackReviewer): HeadersInit {
+-  return {
+-    'Content-Type': 'application/json',
+-    Authorization: `Bearer ${reviewer.token}`,
+-  };
+-}
+-
+ export async function listCoachFeedback(
+-  reviewer: CoachFeedbackReviewer,
+   status: CoachFeedbackStatus = 'pending',
+ ): Promise<CoachFeedbackRecord[]> {
+-  const response = await fetch(`/api/coach/feedback?status=${encodeURIComponent(status)}`, {
+-    headers: reviewerHeaders(reviewer),
++  const response = await authFetch(`/api/coach/feedback?status=${encodeURIComponent(status)}`, {
++    headers: { 'Content-Type': 'application/json' },
+   });
+   if (!response.ok) throw new Error('Could not load the Coach feedback queue.');
+   const body = await response.json() as { items?: CoachFeedbackRecord[] };
+@@ -79,12 +66,11 @@
+ export async function reviewCoachFeedback(
+   id: string,
+   status: 'approved' | 'dismissed',
+-  reviewer: CoachFeedbackReviewer,
+   reviewNote?: string,
+ ): Promise<CoachFeedbackRecord> {
+-  const response = await fetch(`/api/coach/feedback/${encodeURIComponent(id)}`, {
++  const response = await authFetch(`/api/coach/feedback/${encodeURIComponent(id)}`, {
+     method: 'PATCH',
+-    headers: reviewerHeaders(reviewer),
++    headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ status, ...(reviewNote?.trim() ? { reviewNote: reviewNote.trim() } : {}) }),
+   });
+   if (!response.ok) throw new Error('Could not update this Coach feedback item.');
+--- before/commerce-coach/src/coach/providerClient.ts
++++ after/commerce-coach/src/coach/providerClient.ts
+@@ -1,14 +1,15 @@
++import { authFetch } from '../auth/client';
+ import type { ChatMessage, ConversationState } from './responseEngine';
+ import type { generateOpenRouterResponse } from '../../server/coach/openrouterService';
+ export const providers = { openrouter: false, gemini: false };
+ export async function loadProviders() {
+   try {
+-    const response = await fetch('/api/config', { signal: AbortSignal.timeout(5000) });
++    const response = await authFetch('/api/config', { signal: AbortSignal.timeout(5000) });
+     if (response.ok) Object.assign(providers, await response.json());
+   } catch { /* Local knowledge remains usable when the API is unavailable. */ }
+ }
+ export async function generate(provider: 'openrouter' | 'gemini', messages: ChatMessage[], state: ConversationState, retrievalContext?: string): ReturnType<typeof generateOpenRouterResponse> {
+-  const response = await fetch('/api/coach/generate', {
++  const response = await authFetch('/api/coach/generate', {
+     method: 'POST', headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ provider, messages: messages.slice(-30), state, retrievalContext }),
+     signal: AbortSignal.timeout(120000),
+--- before/commerce-coach/src/coach/semanticRetrieval.ts
++++ after/commerce-coach/src/coach/semanticRetrieval.ts
+@@ -1,3 +1,4 @@
++import { authFetch } from '../auth/client';
+ import type { EmbeddingDocument, EmbeddingMetadataValue } from './embeddings';
+ 
+ interface RetrievalApiResult {
+@@ -41,7 +42,7 @@
+   const timeout = globalThis.setTimeout(() => controller.abort(), options.timeoutMs ?? 5_000);
+ 
+   try {
+-    const response = await fetch('/api/coach/retrieve', {
++    const response = await authFetch('/api/coach/retrieve', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ query, kind: 'knowledge', limit: options.limit ?? 6 }),
+--- before/commerce-coach/src/main.tsx
++++ after/commerce-coach/src/main.tsx
+@@ -1,6 +1,6 @@
+ import React from 'react';
+ import { createRoot } from 'react-dom/client';
+-import CommerceCoachPage from './pages/CommerceCoachPage';
+-import { loadProviders } from './coach/providerClient';
++import { AuthProvider } from './auth/AuthContext';
++import { AppShell } from './auth/AppShell';
+ import './index.css';
+-void loadProviders().finally(() => createRoot(document.getElementById('root')!).render(<React.StrictMode><CommerceCoachPage /></React.StrictMode>));
++createRoot(document.getElementById('root')!).render(<React.StrictMode><AuthProvider><AppShell /></AuthProvider></React.StrictMode>);
+--- before/commerce-coach/src/pages/CommerceCoachPage.tsx
++++ after/commerce-coach/src/pages/CommerceCoachPage.tsx
+@@ -1,3 +1,4 @@
++import { useAuth } from '../auth/AuthContext';
+ import { screenshotUrl } from '../coach/screenshotAssets';
+ import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
+ import { getThemeColor } from '../utils/themeColors';
+@@ -254,6 +255,7 @@
+ }
+ 
+ export default function CommerceCoachPage() {
++  const { user } = useAuth();
+   const themeColor = 'purple';
+   const geminiConfigured = isGeminiConfig();
+   const openRouterConfigured = isOpenRouterConfig();
+@@ -353,7 +355,7 @@
+   const showWelcome = messages.length <= 1;
+ 
+   return (
+-    <div className="flex h-dvh bg-gray-50 rounded-none overflow-hidden border border-gray-200">
++    <div className="flex h-full bg-gray-50 rounded-none overflow-hidden border border-gray-200">
+       {/* Sidebar */}
+       <div className="w-60 bg-white border-r border-gray-100 flex flex-col shrink-0">
+         <div className="p-4 border-b border-gray-100">
+@@ -407,7 +409,7 @@
+         </div>
+ 
+         <div className="flex-1 p-3 space-y-1">
+-          {SIDEBAR_ITEMS.map((item) => {
++          {SIDEBAR_ITEMS.filter(item => item.id !== 'learning' || user.role !== 'member').map((item) => {
+             const Icon = item.icon;
+             const isActive = activeSection === item.id;
+             return (

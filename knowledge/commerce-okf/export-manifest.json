@@ -1,0 +1,1616 @@
+{
+  "generatedAt": "2026-09-12T09:42:55.374Z",
+  "counts": {
+    "knowledge": 238,
+    "merchantFaqs": 113,
+    "workflows": 3,
+    "training": 8,
+    "quizzes": 35,
+    "orderSources": 6,
+    "visualGuides": 30,
+    "concepts": 320,
+    "screenshots": 112
+  },
+  "concepts": [
+    {
+      "path": "faqs/merchant-faq-001.md",
+      "title": "What is Pathao Commerce",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-002.md",
+      "title": "Who is Pathao Commerce for",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-003.md",
+      "title": "I only sell through Facebook. Will Pathao Commerce still be useful for me",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-004.md",
+      "title": "Do I need coding or technical knowledge",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-005.md",
+      "title": "Can I sign up without a Pathao Courier account",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-006.md",
+      "title": "How can I sign up",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-007.md",
+      "title": "Can I use Commerce if my email verification is still pending",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-008.md",
+      "title": "What do I need to get started",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-009.md",
+      "title": "Can I create my own online store",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-010.md",
+      "title": "Can I add my own logo, banner, and business information",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-011.md",
+      "title": "Can I change my store address or subdomain later",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-012.md",
+      "title": "Can I connect my own .com domain",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-013.md",
+      "title": "Can I edit the store after publishing it",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-014.md",
+      "title": "Can I start selling before completing my full catalogue",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-015.md",
+      "title": "How can I add products",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-016.md",
+      "title": "Can I create product variants such as size and colour",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-017.md",
+      "title": "Can I manage stock separately for different warehouses",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-018.md",
+      "title": "Will I receive an alert when my stock is running low",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-019.md",
+      "title": "Can I import products from Daraz",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-020.md",
+      "title": "Can I download my current product list",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-021.md",
+      "title": "Do I need to connect Pathao Shop separately",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-022.md",
+      "title": "Can I publish Commerce products to Pathao Shop",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-023.md",
+      "title": "Do I need to connect Daraz separately",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-024.md",
+      "title": "Can I use different prices on Daraz and Pathao Shop",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-025.md",
+      "title": "Can I connect Shopify or WooCommerce",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-026.md",
+      "title": "What is Instant Checkout",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-027.md",
+      "title": "Can one checkout link include multiple products",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-028.md",
+      "title": "What if the product is not already in my catalogue",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-029.md",
+      "title": "Where will orders from Instant Checkout appear",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-030.md",
+      "title": "Do I need to Accept or mark Instant Checkout orders as Ready to Ship",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-031.md",
+      "title": "Can I see orders from different channels in one place",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-032.md",
+      "title": "Why do some orders require Accept and Ready to Ship, while others do not",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-033.md",
+      "title": "Do I need to enter the customer address again in the Courier panel",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-034.md",
+      "title": "When is an order sent to Pathao Courier",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-035.md",
+      "title": "Who delivers a Daraz order",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-036.md",
+      "title": "Where can I find cancelled orders",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-037.md",
+      "title": "Are Pathao Courier and Instant Delivery the same service",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-038.md",
+      "title": "Can payment be collected through Instant Delivery",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-039.md",
+      "title": "Can I track delivery from Commerce",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-040.md",
+      "title": "How can customers pay",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-041.md",
+      "title": "Do I need a separate payment gateway account or developer",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-042.md",
+      "title": "Where can I check whether a payment was completed",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-043.md",
+      "title": "Can I download finance invoices",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-044.md",
+      "title": "What do I need to receive earnings from Pathao Shop",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-045.md",
+      "title": "How long does settlement take",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-046.md",
+      "title": "Can I see Facebook and WhatsApp messages in one place",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-047.md",
+      "title": "Can I create an order while chatting with a customer",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-048.md",
+      "title": "Do I need to enter the customer’s name, phone number, and address again",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-049.md",
+      "title": "Where do orders created from chat appear",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-050.md",
+      "title": "Can I manage Instagram messages from Pathao Commerce",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-051.md",
+      "title": "What does “warehouse” mean in Pathao Commerce",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-052.md",
+      "title": "If I already have a Pathao Courier store, do I need to create another warehouse",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-053.md",
+      "title": "Does the first warehouse need approval",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-054.md",
+      "title": "How long does it take to approve an additional warehouse",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-055.md",
+      "title": "Can I give my employees separate access",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-056.md",
+      "title": "Can I use an API for Instant Delivery",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-057.md",
+      "title": "Where can I configure the webhook",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-058.md",
+      "title": "Should I share my Client Secret or access token with support",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-059.md",
+      "title": "আপনাদের কোনো ইউজার ম্যানুয়াল থাকলে প্লিজ শেয়ার করবেন।",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-060.md",
+      "title": "Can I process customer refunds automatically",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-061.md",
+      "title": "Can I edit multiple products at once",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-062.md",
+      "title": "Can I schedule a price change for a campaign",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-063.md",
+      "title": "Can I set an expiry date for an Instant Checkout link",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-064.md",
+      "title": "Will Commerce remind me when I need to restock",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-065.md",
+      "title": "Can I upload product videos",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-066.md",
+      "title": "Will more online-store designs be available",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-067.md",
+      "title": "Can I see detailed payment analytics",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-068.md",
+      "title": "Can I see how each checkout link is performing",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-069.md",
+      "title": "আমি কি একটার বেশি শপ এড করতে পারবো?  যেমন আমার দারাজে ৩ টা শপ আমি কি শুধু একটাই এড করতে পারব? আমার ই-কমার্স যেটা আছে সেটা কি আমি এড করতে পারবো?  যেহেতু দারাজের ১ টা শপ already add করেছি।",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-070.md",
+      "title": "What should I do if I do not receive the signup OTP",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-071.md",
+      "title": "How is the Pathao Commerce dashboard organized",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-072.md",
+      "title": "Where can I see important notifications",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-073.md",
+      "title": "Where can I update my business and account settings",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-074.md",
+      "title": "What can I find with global search",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-075.md",
+      "title": "Can I use Pathao Commerce from a mobile browser",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-076.md",
+      "title": "How do I add another warehouse",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-077.md",
+      "title": "How do I edit or remove a warehouse",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-078.md",
+      "title": "What do Draft, Active, and Archived product statuses mean",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-079.md",
+      "title": "How should I use product categories",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-080.md",
+      "title": "Can I duplicate an existing product",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-081.md",
+      "title": "How do I quickly find a product in a large catalogue",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-082.md",
+      "title": "How many images can I add to a product",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-083.md",
+      "title": "Which fields are required for a bulk product CSV upload",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-084.md",
+      "title": "Why did some rows fail during bulk product upload",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-085.md",
+      "title": "Why do I need to map a category before publishing to Daraz",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-086.md",
+      "title": "How do I transfer stock between warehouses",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-087.md",
+      "title": "How does inventory stay synchronized across channels",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-088.md",
+      "title": "Can I see why stock changed",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-089.md",
+      "title": "Why did publishing a product to Pathao Shop fail",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-090.md",
+      "title": "How do I publish a product to Daraz",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-091.md",
+      "title": "How do I create and share an Instant Checkout link",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-092.md",
+      "title": "Can I create an order manually for a customer",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-093.md",
+      "title": "Can I add a private note to an order",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-094.md",
+      "title": "How can I share order tracking with a customer",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-095.md",
+      "title": "How do I create an Instant Delivery request",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-096.md",
+      "title": "How do I track an Instant Delivery request",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-097.md",
+      "title": "What can I do with Quick Actions in a customer chat",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-098.md",
+      "title": "How do Quick Replies help with customer chats",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-099.md",
+      "title": "What is the Connection Hub",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-100.md",
+      "title": "How do I connect Facebook Messenger",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-101.md",
+      "title": "How do I connect WhatsApp with Quick Connect",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-102.md",
+      "title": "When should I use WhatsApp Manual Setup",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-103.md",
+      "title": "What is the Media Gallery used for",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-104.md",
+      "title": "Can I crop an image inside Pathao Commerce",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-105.md",
+      "title": "How do I link a Media Gallery image to a product",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-106.md",
+      "title": "How can I find and organize images in the Media Gallery",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-107.md",
+      "title": "Where can I review Online Store analytics",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-108.md",
+      "title": "How do I create an ad catalogue",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-109.md",
+      "title": "Can I add custom pages to my Online Store",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-110.md",
+      "title": "How do I add Meta Pixel tracking to my Online Store",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-111.md",
+      "title": "How can I improve product SEO for my Online Store",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-112.md",
+      "title": "What can I review in the Finance section",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "faqs/merchant-faq-113.md",
+      "title": "Where can I confirm Pathao Commerce fees or commission",
+      "type": "Merchant FAQ"
+    },
+    {
+      "path": "knowledge/signup-001.md",
+      "title": "Direct Signup",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/signup-002.md",
+      "title": "Courier Signup",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/signup-003.md",
+      "title": "Google OAuth Signup",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/signup-004.md",
+      "title": "OTP Login",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/signup-005.md",
+      "title": "Warehouse Setup During Signup",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/warehouse-001.md",
+      "title": "Warehouse Creation",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/warehouse-002.md",
+      "title": "Warehouse Approval",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/warehouse-003.md",
+      "title": "Courier Mapping",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/warehouse-004.md",
+      "title": "Warehouse Edit & Delete",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-001.md",
+      "title": "Simple Product Creation",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-002.md",
+      "title": "Product with Variants",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-003.md",
+      "title": "Bulk Product Upload",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-004.md",
+      "title": "Daraz Product Import",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-005.md",
+      "title": "Product Status & Publishing",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-006.md",
+      "title": "Product Categories",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/inventory-001.md",
+      "title": "Warehouse-Aware Stock Tracking",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/inventory-002.md",
+      "title": "Low Stock Alerts",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/inventory-003.md",
+      "title": "Stock Transfer Between Warehouses",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/inventory-004.md",
+      "title": "Inventory Sync with Channels",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/channel-001.md",
+      "title": "Pathao Shop (Marketplace)",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/channel-002.md",
+      "title": "Daraz Integration",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/channel-003.md",
+      "title": "Online Store",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/channel-004.md",
+      "title": "Social Commerce Channels",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/channels-001.md",
+      "title": "Sales Channel Publishing",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/channels-002.md",
+      "title": "Pathao Shop Setup & Errors",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/channels-003.md",
+      "title": "Daraz Publishing",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/orders-001.md",
+      "title": "Order Dashboard",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chats-001.md",
+      "title": "Unified Inbox",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chats-002.md",
+      "title": "Chat-to-Order",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chats-003.md",
+      "title": "Customer Context & History",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chats-004.md",
+      "title": "Quick Actions & Presets",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addons-001.md",
+      "title": "Connection Hub",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addons-facebook.md",
+      "title": "Facebook Messenger Integration",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addons-whatsapp-quick.md",
+      "title": "WhatsApp Quick Connect",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addons-whatsapp-manual.md",
+      "title": "WhatsApp Manual Setup",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addons-daraz.md",
+      "title": "Daraz Connection",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/daraz-001.md",
+      "title": "Daraz Product Import",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/checkout-001.md",
+      "title": "Instant Checkout Link Generation",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/checkout-002.md",
+      "title": "Checkout Link Sharing",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/checkout-003.md",
+      "title": "Checkout Link Order Processing",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/order-001.md",
+      "title": "Unified Order Dashboard",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/order-002.md",
+      "title": "Order Sources",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/order-003.md",
+      "title": "Order Statuses",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/order-004.md",
+      "title": "Order Fulfillment",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/order-005.md",
+      "title": "Manual Order Creation",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/delivery-001.md",
+      "title": "Instant Delivery Overview",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/delivery-002.md",
+      "title": "Instant Delivery API",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/delivery-005.md",
+      "title": "Instant Delivery Order Flow",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/delivery-003.md",
+      "title": "Instant Delivery POD and payer rules",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/store-001.md",
+      "title": "Online Store Creation",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/store-002.md",
+      "title": "Online Store Branding",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/store-003.md",
+      "title": "Online Store Publishing",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/store-004.md",
+      "title": "Online Store Analytics",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/catalogue-001.md",
+      "title": "Online Store Ad Catalogue",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chat-001.md",
+      "title": "Facebook Messenger Integration",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chat-002.md",
+      "title": "WhatsApp Integration",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chat-003.md",
+      "title": "Unified Inbox",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chat-004.md",
+      "title": "Chat-to-Order Conversion",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addon-001.md",
+      "title": "Connection Hub",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addon-002.md",
+      "title": "Daraz Connect (Auth)",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addon-003.md",
+      "title": "Meta Commerce (Facebook & Instagram Shops)",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/finance-001.md",
+      "title": "Invoice Management",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/finance-002.md",
+      "title": "Payout Tracking",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/finance-003.md",
+      "title": "Finance Dashboard",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/media-001.md",
+      "title": "Media Gallery Upload",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/media-002.md",
+      "title": "Image Cropping & Optimization",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/media-003.md",
+      "title": "CDN Links & Product Linking",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-001.md",
+      "title": "Pathao Commerce Platform Overview",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-002.md",
+      "title": "Dashboard Navigation",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-003.md",
+      "title": "Order Processing Workflow",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-004.md",
+      "title": "Payment Methods Supported",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-005.md",
+      "title": "Customer Management",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-006.md",
+      "title": "Notifications",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-007.md",
+      "title": "Settings & Profile",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-008.md",
+      "title": "Help Center",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-007.md",
+      "title": "Product Image Management",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-008.md",
+      "title": "Product Search & Filtering",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/order-006.md",
+      "title": "Order Tracking",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/order-007.md",
+      "title": "Order Cancellation",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/warehouse-005.md",
+      "title": "Warehouse Stock View",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/inventory-005.md",
+      "title": "Bulk Stock Adjustment",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/channel-005.md",
+      "title": "Channel Assignment",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/checkout-004.md",
+      "title": "Checkout Link Customization",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/finance-004.md",
+      "title": "Fee Structure",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/media-004.md",
+      "title": "Media Gallery Organization",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/delivery-004.md",
+      "title": "Instant Delivery Tracking",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addon-004.md",
+      "title": "API Access (Developers)",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-009.md",
+      "title": "Bulk Actions",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-010.md",
+      "title": "Data Export",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-011.md",
+      "title": "Search Across Platform",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/signup-006.md",
+      "title": "Two-Factor Authentication",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-012.md",
+      "title": "Multi-User Access",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-009.md",
+      "title": "Product Duplication",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/order-008.md",
+      "title": "Order Notes",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/inventory-006.md",
+      "title": "Stock History & Audit Log",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/store-005.md",
+      "title": "Online Store Pages",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/finance-005.md",
+      "title": "Payout Methods",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/chat-005.md",
+      "title": "Chat Quick Replies",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/addon-005.md",
+      "title": "Meta Pixel Tracking",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/product-010.md",
+      "title": "Product SEO",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-013.md",
+      "title": "Mobile Responsive Dashboard",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/general-014.md",
+      "title": "Real-time Sync",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/discovery-001.md",
+      "title": "Commerce Value Proposition",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/discovery-002.md",
+      "title": "Merchant Qualification Checklist",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/discovery-003.md",
+      "title": "Facebook-Only Merchant Onboarding",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/discovery-004.md",
+      "title": "Large Catalog Merchant Setup",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/discovery-005.md",
+      "title": "Multi-Warehouse Merchant Setup",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/bulk-001.md",
+      "title": "CSV Field Reference",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/bulk-002.md",
+      "title": "Bulk Upload Error Handling",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/bulk-003.md",
+      "title": "Daraz Import Category Mapping",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/trouble-001.md",
+      "title": "Instant Checkout Order Missing from New Orders",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/trouble-002.md",
+      "title": "Product Not Visible on Sales Channel",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/trouble-003.md",
+      "title": "Warehouse Approval Pending",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/trouble-004.md",
+      "title": "WhatsApp Connection Failed",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/trouble-005.md",
+      "title": "Daraz Import Failed",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/trouble-006.md",
+      "title": "Payout Not Released",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/scenario-001.md",
+      "title": "Facebook-Only Merchant Onboarding Path",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/scenario-002.md",
+      "title": "Daraz + Multi-Warehouse Large Merchant",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/scenario-003.md",
+      "title": "WhatsApp + Manual Courier Merchant",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/scenario-004.md",
+      "title": "Merchant with Existing Online Presence",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/status-001.md",
+      "title": "Instagram Shop",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/status-002.md",
+      "title": "Shopify Integration",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/status-003.md",
+      "title": "Staff Roles and Permissions",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/status-004.md",
+      "title": "Instant Delivery Coverage",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "knowledge/status-005.md",
+      "title": "Custom Online Store Domain",
+      "type": "Product Knowledge"
+    },
+    {
+      "path": "workflows/create-warehouse.md",
+      "title": "Warehouse Creation",
+      "type": "Playbook"
+    },
+    {
+      "path": "workflows/find-instant-checkout-order.md",
+      "title": "Instant Checkout Order Missing from New Orders",
+      "type": "Playbook"
+    },
+    {
+      "path": "workflows/create-ad-catalogue.md",
+      "title": "Online Store Ad Catalogue",
+      "type": "Playbook"
+    },
+    {
+      "path": "training/level-1.md",
+      "title": "Fundamentals",
+      "type": "Training Module"
+    },
+    {
+      "path": "training/level-2.md",
+      "title": "Account Setup",
+      "type": "Training Module"
+    },
+    {
+      "path": "training/level-3.md",
+      "title": "Product Catalog",
+      "type": "Training Module"
+    },
+    {
+      "path": "training/level-4.md",
+      "title": "Selling Channels",
+      "type": "Training Module"
+    },
+    {
+      "path": "training/level-5.md",
+      "title": "Social Commerce & Checkout",
+      "type": "Training Module"
+    },
+    {
+      "path": "training/level-6.md",
+      "title": "Orders & Fulfillment",
+      "type": "Training Module"
+    },
+    {
+      "path": "training/level-7.md",
+      "title": "Finance & Operations",
+      "type": "Training Module"
+    },
+    {
+      "path": "training/level-8.md",
+      "title": "Certification",
+      "type": "Training Module"
+    },
+    {
+      "path": "quizzes/quiz-001.md",
+      "title": "What is the primary purpose of Pathao Commerce?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-002.md",
+      "title": "Existing Pathao Courier merchants can use their courier credentials to log into Pathao Commerce.",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-003.md",
+      "title": "What is the typical approval time for a new warehouse?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-004.md",
+      "title": "What is the maximum number of images allowed per product?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-005.md",
+      "title": "What does the red highlight indicate on the Inventory page?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-006.md",
+      "title": "Pathao Shop is a built-in marketplace within the Pathao app.",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-007.md",
+      "title": "What are the four main order sources in Pathao Commerce?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-008.md",
+      "title": "When is POD available for an Instant Delivery order?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-009.md",
+      "title": "Online Store requires coding knowledge to set up.",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-010.md",
+      "title": "What is the maximum file size for an image upload to the Media Gallery?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-011.md",
+      "title": "What happens if a warehouse is rejected during the approval process?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-012.md",
+      "title": "How many option types and variant combinations are supported for a product with variants?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-013.md",
+      "title": "A merchant wants to move 50 units of Product A from Warehouse 1 to Warehouse 2. What is the correct process?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-014.md",
+      "title": "What is the default URL format for a published Online Store?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-015.md",
+      "title": "What is the standard order fulfillment workflow?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-016.md",
+      "title": "Instant Checkout links can be shared via WhatsApp, Facebook Messenger, SMS, or any messaging channel.",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-017.md",
+      "title": "What feature allows merchants to create an order directly from a chat conversation?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-018.md",
+      "title": "What should you say when a merchant asks for the exact payout release time?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-019.md",
+      "title": "What happens when a product is set to \"Archived\" status?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-020.md",
+      "title": "A merchant selects Sender as payer and expects to use POD. What should you tell them?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-021.md",
+      "title": "A merchant reports that a product shows \"Out of Stock\" on their Online Store even though they have 50 units in their warehouse. What could be the issue?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-022.md",
+      "title": "A merchant created a checkout link, shared it with a customer, but the customer sees \"Product Unavailable\". What should the merchant check first?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-023.md",
+      "title": "A merchant sells on both Daraz and Pathao Commerce. An order comes in on Daraz for a product with only 2 units left. What happens to the Pathao Commerce inventory?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-024.md",
+      "title": "A merchant connected their Facebook Page but is not receiving Messenger messages in the unified inbox. What should you check?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-025.md",
+      "title": "When bulk uploading products via CSV, which field is required for each product?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-026.md",
+      "title": "A merchant cannot find an invoice from a connected sales channel. What should you check first?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-027.md",
+      "title": "A merchant can connect a custom domain to their Pathao Online Store without any additional setup.",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-028.md",
+      "title": "A merchant has 3 warehouses but orders are always assigned to the same warehouse even when it's out of stock of the ordered product. What is happening?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-029.md",
+      "title": "Which of the following requires re-authentication periodically?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-030.md",
+      "title": "A customer placed an order via Instant Checkout, paid online, but the merchant wants to cancel it. The order is in \"Processing\" status. What should the merchant know?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-031.md",
+      "title": "What happens when you delete an image from the Media Gallery that is linked to an active product?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-032.md",
+      "title": "Activating a product with zero stock is allowed, and it will show as \"Out of Stock\" to customers.",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-033.md",
+      "title": "What is the default low-stock threshold for products?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-034.md",
+      "title": "How many failed OTP attempts before a merchant must wait before retrying?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "quizzes/quiz-035.md",
+      "title": "A merchant published their Online Store but it shows a \"Not Found\" error. What should you check?",
+      "type": "Quiz Question"
+    },
+    {
+      "path": "order-sources/online-store.md",
+      "title": "Online Store",
+      "type": "Order Routing Rule"
+    },
+    {
+      "path": "order-sources/pathao-shop.md",
+      "title": "Pathao Shop",
+      "type": "Order Routing Rule"
+    },
+    {
+      "path": "order-sources/daraz.md",
+      "title": "Daraz",
+      "type": "Order Routing Rule"
+    },
+    {
+      "path": "order-sources/live-chat-manual.md",
+      "title": "Live Chat / Manual Order",
+      "type": "Order Routing Rule"
+    },
+    {
+      "path": "order-sources/instant-checkout.md",
+      "title": "Instant Checkout",
+      "type": "Order Routing Rule"
+    },
+    {
+      "path": "order-sources/instant-delivery.md",
+      "title": "Instant Delivery module",
+      "type": "Order Routing Rule"
+    },
+    {
+      "path": "visual-guides/signup-001.md",
+      "title": "Direct signup",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/signup-002.md",
+      "title": "Courier account signup",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/signup-003.md",
+      "title": "Google signup",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/warehouse-001.md",
+      "title": "Warehouse setup",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/product-001.md",
+      "title": "Product creation and variants",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/bulk-001.md",
+      "title": "Bulk product upload",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/daraz-001.md",
+      "title": "Daraz product import",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/inventory-001.md",
+      "title": "Inventory management",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/channels-001.md",
+      "title": "Publish to Pathao Shop",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/channels-002.md",
+      "title": "Pathao Shop settings and errors",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/channels-003.md",
+      "title": "Publish to Daraz",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/checkout-001.md",
+      "title": "Instant Checkout links",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/orders-001.md",
+      "title": "Order management",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/delivery-001.md",
+      "title": "Instant Delivery setup",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/delivery-002.md",
+      "title": "Instant Delivery orders",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/delivery-003.md",
+      "title": "Instant Delivery API and webhooks",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/store-001.md",
+      "title": "Online Store setup",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/store-analytics.md",
+      "title": "Online Store Pixel and tracking",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/catalogue-001.md",
+      "title": "Online Store ad catalogue",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/chats-001.md",
+      "title": "Chats and unified inbox",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/chats-002.md",
+      "title": "Create an order from chat",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/chats-003.md",
+      "title": "Chat customer context",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/chats-004.md",
+      "title": "Chat quick actions",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/addons-001.md",
+      "title": "Add-ons",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/addons-facebook.md",
+      "title": "Facebook connection",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/addons-whatsapp-quick.md",
+      "title": "WhatsApp Quick Connect",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/addons-whatsapp-manual.md",
+      "title": "WhatsApp manual setup",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/addons-daraz.md",
+      "title": "Daraz connection",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/finance-001.md",
+      "title": "Finance and payout methods",
+      "type": "Visual Guide"
+    },
+    {
+      "path": "visual-guides/media-001.md",
+      "title": "Media Gallery",
+      "type": "Visual Guide"
+    }
+  ]
+}

@@ -1,0 +1,378 @@
+--- a/commerce-coach/src/main.tsx
++++ b/commerce-coach/src/main.tsx
+@@ -1,9 +1,9 @@
+ import React from 'react';
+ import { createRoot } from 'react-dom/client';
+ import { AuthProvider } from './auth/AuthContext';
+-import { AppShell } from './auth/AppShell';
++const AppShell = React.lazy(() => import('./auth/AppShell').then(module => ({ default: module.AppShell })));
+ import '@fontsource-variable/outfit/wght.css';
+ import '@fontsource-variable/noto-sans-bengali/wght.css';
+ import './index.css';
+ try{const saved=localStorage.getItem('coach-appearance');if(saved==='light'||saved==='dark')document.documentElement.dataset.appearance=saved;}catch{}
+-createRoot(document.getElementById('root')!).render(<React.StrictMode><AuthProvider><AppShell /></AuthProvider></React.StrictMode>);
++createRoot(document.getElementById('root')!).render(<React.StrictMode><AuthProvider><React.Suspense fallback={<div role="status">Loading workspace…</div>}><AppShell /></React.Suspense></AuthProvider></React.StrictMode>);
+--- a/commerce-coach/vite.config.ts
++++ b/commerce-coach/vite.config.ts
+@@ -1,9 +1,26 @@
++import { posix } from 'node:path';
+ import { defineConfig, loadEnv } from 'vite';
+ import react from '@vitejs/plugin-react';
+ import tailwindcss from '@tailwindcss/vite';
++import { requireAuth, requireReady } from './server/auth/middleware';
+ export default defineConfig(({ mode }) => {
+   const env = loadEnv(mode, process.cwd(), '');
+-  return { plugins: [react(), tailwindcss()], server: { strictPort: true, proxy: {
++  return { build: { manifest: true }, plugins: [react(), tailwindcss(), {
++    name: 'protect-workspace-source',
++    configureServer(server) {
++      const publicSource=new Set(['/src/main.tsx','/src/index.css','/src/auth/AuthContext.tsx','/src/auth/client.ts','/src/coach/providerClient.ts']);
++      server.middlewares.use((req,res,next)=>{
++        let path:string;try{path=posix.normalize(decodeURIComponent(new URL(req.url||'/', 'http://localhost').pathname));}catch{res.statusCode=400;res.end();return;}
++        if(!/^\/(src|server|data|scripts|@fs)\//.test(path)||publicSource.has(path))return next();
++        // Vite uses Connect responses; the auth middleware expects Express helpers.
++        const response=res as any;
++        response.status=(status:number)=>{res.statusCode=status;return response;};
++        response.json=(body:unknown)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(body));};
++        res.setHeader('Cache-Control','private, no-store');
++        requireAuth(req as any,response,()=>requireReady(req as any,response,next));
++      });
++    },
++  }], server: { strictPort: true, proxy: {
+     '/api': { target: `http://127.0.0.1:${env.PORT || 4010}`, changeOrigin: true },
+   } } };
+ });
+--- a/commerce-coach/package.json
++++ b/commerce-coach/package.json
+@@ -11,7 +11,7 @@
+     "coach:eval": "node --import tsx scripts/evaluate-coach-workflows.ts",
+     "embeddings:build": "node --import tsx scripts/build-coach-embeddings.ts",
+     "server": "node --watch --import tsx server/index.ts",
+-    "client": "vite --host 0.0.0.0 --port 8010",
++    "client": "vite --host 127.0.0.1 --port 8010",
+     "start": "node --import tsx server/index.ts",
+     "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts",
+     "db:init": "node --import tsx scripts/init-db.ts",
+--- a/commerce-coach/.env.example
++++ b/commerce-coach/.env.example
+@@ -19,3 +19,6 @@
+ GOOGLE_CLIENT_ID=
+ GOOGLE_CLIENT_SECRET=
+ GOOGLE_REDIRECT_URI=http://localhost:4010/api/auth/google/callback
++
++# Exact reverse-proxy IPs/CIDRs only. Empty means forwarded IP headers are ignored.
++TRUSTED_PROXIES=
+--- a/commerce-coach/compose.yaml
++++ b/commerce-coach/compose.yaml
+@@ -32,6 +32,7 @@
+       PORT: 4010
+       DATABASE_URL: postgresql://coach_runtime:${COACH_DB_PASSWORD:?Set COACH_DB_PASSWORD}@db:5432/commerce_coach
+       AUTH_DATABASE_URL: postgresql://coach_login:${COACH_AUTH_PASSWORD:?Set COACH_AUTH_PASSWORD}@db:5432/commerce_coach
++      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+       APP_ORIGINS: ${APP_ORIGINS:-http://localhost:4010}
+       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+--- a/commerce-coach/server/app.ts
++++ b/commerce-coach/server/app.ts
+@@ -1,5 +1,7 @@
+ import 'dotenv/config';
+ import express from 'express';
++import { posix } from 'node:path';
++import { securityHeaders, publicAssets } from './security';
+ import { fileURLToPath } from 'node:url';
+ import { conversationRoutes } from './routes/conversations';
+ import coachRoutes from './routes/coach';
+@@ -12,6 +14,9 @@
+ 
+ export const app = express();
+ app.disable('x-powered-by');
++// Explicit proxy addresses only; never trust arbitrary forwarded client IP headers.
++if(process.env.TRUSTED_PROXIES)app.set('trust proxy',process.env.TRUSTED_PROXIES.split(',').map(value=>value.trim()).filter(Boolean));
++app.use(securityHeaders);
+ app.use(express.json({ limit: '256kb' }));
+ app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+ app.use('/api', sameOrigin);
+@@ -53,9 +58,20 @@
+ app.use('/api/coach', coachRoutes);
+ app.use('/api', (_req, res) => res.status(404).json({ error: 'Unknown API route.' }));
+ const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+-app.use(express.static(dist));
++let publicFiles: Set<string> | undefined;
++app.use((req,res,next)=>{
++  let path:string;try{path=posix.normalize(decodeURIComponent(req.path));}catch{res.sendStatus(400);return;}
++  if(path==='/'||path==='/index.html')return next();
++  try { publicFiles = publicAssets(`${dist}.vite/manifest.json`); }
++  catch { res.status(503).send('Build the application before serving assets.');return; }
++  if(publicFiles.has(path)||/^\/assets\/[^/]+\.woff2?$/.test(path))return next();
++  res.setHeader('Cache-Control','private, no-store');
++  requireAuth(req,res,()=>requireReady(req,res,next));
++});
++app.use('/.vite',(_req,res)=>{res.sendStatus(404);});
++app.use(express.static(dist, {setHeaders(res,path){if(/\.(js|jpg|png)$/.test(path))res.setHeader('Cache-Control','private, no-store');}}));
+ app.get('*', (_req, res) => res.sendFile(`${dist}index.html`));
+ app.use((error: { status?: number; code?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+-  const status = error.code === '23505' || error.code === '23514' ? 409 : error.code === '42501' ? 403 : error.code === '22P02' ? 400 : error.status || 500;
+-  res.status(status).json({ error: status === 409 ? 'A user already exists, or this change would remove the last active admin.' : status === 403 ? 'Access denied.' : status === 413 ? 'Request too large.' : 'Request failed.' });
++  const status = error.code === 'P0001' ? 429 : error.code === '23505' || error.code === '23514' ? 409 : error.code === '42501' ? 403 : error.code === '22P02' ? 400 : error.status || 500;
++  res.status(status).json({ error: status === 429 ? 'Conversation storage limit reached. Contact your administrator.' : status === 409 ? 'A user already exists, or this change would remove the last active admin.' : status === 403 ? 'Access denied.' : status === 413 ? 'Request too large.' : 'Request failed.' });
+ });
+--- a/commerce-coach/server/security.ts
++++ b/commerce-coach/server/security.ts
+@@ -0,0 +1,30 @@
++import type { RequestHandler } from 'express';
++import { readFileSync } from 'node:fs';
++import { authPool } from './db';
++import { digest } from './auth/password';
++
++export const securityHeaders: RequestHandler = (_req,res,next) => {
++  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'");
++  res.setHeader('X-Frame-Options','DENY');
++  res.setHeader('X-Content-Type-Options','nosniff');
++  res.setHeader('Referrer-Policy','no-referrer');
++  res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');
++  if(process.env.NODE_ENV==='production')res.setHeader('Strict-Transport-Security','max-age=31536000');
++  next();
++};
++export async function takeBudget(key:string,maximum:number,seconds:number) {
++  return (await authPool.query('SELECT public.coach_take_budget($1,$2,$3) AS allowed',[digest(key),maximum,seconds])).rows[0].allowed as boolean;
++}
++
++// Only the static dependency closure of the sign-in entry is public. Lazy workspace
++// chunks and documentation images require a ready session, even with a guessed URL.
++export function publicAssets(manifestPath:string): Set<string> {
++  type Entry={file:string;imports?:string[];css?:string[];isEntry?:boolean};
++  const manifest=JSON.parse(readFileSync(manifestPath,'utf8')) as Record<string,Entry>;
++  const allowed=new Set<string>();const visited=new Set<string>();
++  function visit(key:string) {if(visited.has(key))return;visited.add(key);const entry=manifest[key];if(!entry)return;
++    allowed.add('/'+entry.file);for(const css of entry.css??[])allowed.add('/'+css);for(const child of entry.imports??[])visit(child);
++  }
++  for(const [key,entry] of Object.entries(manifest))if(entry.isEntry)visit(key);
++  return allowed;
++}
+--- a/commerce-coach/server/db.ts
++++ b/commerce-coach/server/db.ts
+@@ -15,6 +15,7 @@
+   if (!row || row.rolsuper || row.rolbypassrls || row.rolcreaterole || row.owns_table || row.auth_member || row.elevated_membership || !row.app_member || !row.relrowsecurity || !row.relforcerowsecurity) {
+     throw new Error('Unsafe database role: use a non-owner coach_app member without auth-role membership, superuser, CREATEROLE, or BYPASSRLS.');
+   }
++  if(!(await authPool.query("SELECT to_regprocedure('public.coach_take_budget(text,integer,integer)') IS NOT NULL AS ready")).rows[0].ready)throw new Error('Run database migrations before starting the hardened application.');
+   const history=(await pool.query("SELECT relrowsecurity,relforcerowsecurity,pg_has_role(current_user,relowner,'MEMBER') AS owns FROM pg_class WHERE oid='public.coach_conversations'::regclass")).rows[0];
+   if(!history?.relrowsecurity || !history.relforcerowsecurity || history.owns)throw new Error('Unsafe conversation table: forced RLS is required.');
+   const auth = (await authPool.query(`SELECT pg_has_role(current_user,'coach_auth','MEMBER') AS auth_member, pg_has_role(current_user,'coach_app','MEMBER') AS app_member,
+--- a/commerce-coach/server/auth/routes.ts
++++ b/commerce-coach/server/auth/routes.ts
+@@ -1,3 +1,4 @@
++import { takeBudget } from '../security';
+ import { createGoogleRouter } from './google';
+ import { Router, type RequestHandler } from 'express';
+ import { randomUUID } from 'node:crypto';
+@@ -6,7 +7,6 @@
+ import { asyncRoute, requireAuth, requireReady, requireRole, setSessionCookie, clearSessionCookie } from './middleware';
+ export const authRoutes = Router();
+ authRoutes.use('/google', createGoogleRouter());
+-const attempts = new Map<string, { count: number; until: number }>();
+ let passwordWork = 0;
+ const passwordChanges = new Map<string, { count: number; until: number }>();
+ const passwordBudget: RequestHandler = (req, res, next) => {
+@@ -21,16 +21,14 @@
+   next();
+ };
+ authRoutes.post('/login', asyncRoute(async (req, res) => {
+-  const now = Date.now();
+-  for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
+-  const key = req.ip || 'unknown';
+-  const bucket = attempts.get(key) || { count: 0, until: now + 15 * 60000 };
+-  attempts.set(key, bucket);
+-  if (++bucket.count > 20 || passwordWork >= 4) { res.status(429).json({ error: 'Too many sign-in attempts. Try again later.' }); return; }
+   const { organization, email, password } = req.body || {};
+   if (typeof organization !== 'string' || organization.length > 80 || typeof email !== 'string' || email.length > 254 || typeof password !== 'string' || Buffer.byteLength(password) > 256) {
+     res.status(400).json({ error: 'Organization, email, and password are required.' }); return;
+   }
++  const ipAllowed=await takeBudget(`login-ip:${req.ip}`,20,900);
++  if(!ipAllowed){res.status(429).json({error:'Too many sign-in attempts. Try again later.'});return;}
++  const accountAllowed=await takeBudget(`login-account:${organization.trim().toLowerCase()}:${email.trim().toLowerCase()}`,20,900);
++  if(!accountAllowed||passwordWork>=4){res.status(429).json({error:'Too many sign-in attempts. Try again later.'});return;}
+   passwordWork++;
+   try {
+     const found = (await authPool.query('SELECT * FROM public.coach_login_lookup($1,$2)', [organization.trim().toLowerCase(), email.trim().toLowerCase()])).rows[0];
+--- a/commerce-coach/server/routes/conversations.ts
++++ b/commerce-coach/server/routes/conversations.ts
+@@ -1,8 +1,12 @@
++import { takeBudget } from '../security';
+ import { Router } from 'express';
+ import { withSession } from '../db';
+ import { asyncRoute } from '../auth/middleware';
+ 
+ export const conversationRoutes=Router();
++conversationRoutes.use((req,res,next)=>{void takeBudget(`history:${req.method}:${req.actor!.id}`,req.method==='GET'?120:60,60).then(allowed=>{
++  if(!allowed){res.status(429).json({error:'Too many history requests. Try again shortly.'});return;}next();
++}).catch(next);});
+ const object=(value:any)=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+ const strings=(value:any,keys:string[])=>object(value)&&keys.every(key=>value[key]===undefined||typeof value[key]==='string');
+ function validMetadata(value:any){
+@@ -15,7 +19,7 @@
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+ conversationRoutes.get('/',asyncRoute(async(req,res)=>{
+   const offset=Number(req.query.offset || 0);
+-  if(!Number.isSafeInteger(offset)||offset<0){res.status(400).json({error:'Invalid history offset.'});return;}
++  if(!Number.isSafeInteger(offset)||offset<0||offset>2000){res.status(400).json({error:'Invalid history offset.'});return;}
+   const rows=await withSession(req.sessionHash!,async client=>(await client.query('SELECT id,title,updated_at,revision FROM public.coach_conversations ORDER BY updated_at DESC,id LIMIT 51 OFFSET $1',[offset])).rows);
+   res.json({items:rows.slice(0,50),hasMore:rows.length>50});
+ }));
+--- a/commerce-coach/server/coach/openrouterService.ts
++++ b/commerce-coach/server/coach/openrouterService.ts
+@@ -132,6 +132,7 @@
+ ): Promise<unknown> {
+   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+     method: 'POST',
++    signal: AbortSignal.timeout(15_000),
+     headers: {
+       'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+       'Content-Type': 'application/json',
+--- a/commerce-coach/server/coach/geminiService.ts
++++ b/commerce-coach/server/coach/geminiService.ts
+@@ -14,7 +14,7 @@
+ function getClient(): GoogleGenAI | null {
+   if (!GEMINI_API_KEY) return null;
+   if (!genAI) {
+-    genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
++    genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY, httpOptions: { timeout: 15_000 } });
+   }
+   return genAI;
+ }
+--- a/commerce-coach/server/migrate.ts
++++ b/commerce-coach/server/migrate.ts
+@@ -11,7 +11,7 @@
+   try {
+     await client.query('BEGIN');
+     await client.query("SELECT pg_advisory_xact_lock(hashtext('commerce-coach-migrate'))");
+-    for (const file of ['001_security.sql', '002_google_sso.sql', '003_conversations.sql']) {
++    for (const file of ['001_security.sql', '002_google_sso.sql', '003_conversations.sql', '004_hardening.sql']) {
+       await client.query(await readFile(new URL(`./migrations/${file}`, import.meta.url), 'utf8'));
+     }
+     for (const [connection, group] of [[runtime, 'coach_app'], [auth, 'coach_auth']] as const) {
+--- a/commerce-coach/server/migrations/004_hardening.sql
++++ b/commerce-coach/server/migrations/004_hardening.sql
+@@ -0,0 +1,50 @@
++-- Shared, atomic limits survive restarts and apply across application instances.
++CREATE TABLE IF NOT EXISTS coach_private.request_budgets (
++ key text PRIMARY KEY, count integer NOT NULL, expires_at timestamptz NOT NULL
++);
++CREATE INDEX IF NOT EXISTS request_budgets_expiry ON coach_private.request_budgets(expires_at);
++REVOKE ALL ON coach_private.request_budgets FROM PUBLIC,coach_app,coach_auth;
++CREATE OR REPLACE FUNCTION public.coach_take_budget(bucket text, maximum integer, window_seconds integer)
++RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
++DECLARE used integer;
++BEGIN
++ IF length(bucket)>160 OR maximum<1 OR window_seconds<1 OR window_seconds>86400 THEN RAISE invalid_parameter_value; END IF;
++ DELETE FROM coach_private.request_budgets WHERE expires_at<=now();
++ INSERT INTO coach_private.request_budgets AS b(key,count,expires_at) VALUES(bucket,1,now()+make_interval(secs=>window_seconds))
++ ON CONFLICT(key) DO UPDATE SET count=least(b.count+1,maximum+1)
++ RETURNING count INTO used;
++ RETURN used<=maximum;
++END $$;
++REVOKE ALL ON FUNCTION public.coach_take_budget(text,integer,integer) FROM PUBLIC,coach_app;
++GRANT EXECUTE ON FUNCTION public.coach_take_budget(text,integer,integer) TO coach_auth;
++
++-- Private counters avoid weakening FORCE RLS to count across authors.
++CREATE TABLE IF NOT EXISTS coach_private.conversation_usage(key text PRIMARY KEY, total integer NOT NULL);
++REVOKE ALL ON coach_private.conversation_usage FROM PUBLIC,coach_app,coach_auth;
++-- Block concurrent inserts while rebuilding counters on repeat deployments.
++LOCK TABLE public.coach_conversations IN SHARE ROW EXCLUSIVE MODE;
++-- Fail closed if the migration owner cannot see all existing records.
++SET LOCAL row_security=off;
++INSERT INTO coach_private.conversation_usage
++ SELECT 'org:'||organization_id,count(*) FROM public.coach_conversations GROUP BY organization_id
++ ON CONFLICT(key) DO UPDATE SET total=excluded.total;
++INSERT INTO coach_private.conversation_usage
++ SELECT 'user:'||user_id,count(*) FROM public.coach_conversations GROUP BY user_id
++ ON CONFLICT(key) DO UPDATE SET total=excluded.total;
++SET LOCAL row_security=on;
++CREATE OR REPLACE FUNCTION public.coach_conversation_quota() RETURNS trigger
++LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
++DECLARE org_total integer; user_total integer;
++BEGIN
++ -- Atomic counters serialize quota decisions; an exception rolls back both increments.
++ INSERT INTO coach_private.conversation_usage AS usage VALUES('org:'||NEW.organization_id,1)
++ ON CONFLICT(key) DO UPDATE SET total=usage.total+1 RETURNING total INTO org_total;
++ INSERT INTO coach_private.conversation_usage AS usage VALUES('user:'||NEW.user_id,1)
++ ON CONFLICT(key) DO UPDATE SET total=usage.total+1 RETURNING total INTO user_total;
++ IF org_total>2000 OR user_total>200 THEN
++ RAISE EXCEPTION 'Conversation storage quota reached' USING ERRCODE='P0001'; END IF;
++ RETURN NEW;
++END $$;
++REVOKE ALL ON FUNCTION public.coach_conversation_quota() FROM PUBLIC,coach_app,coach_auth;
++DROP TRIGGER IF EXISTS conversation_quota ON public.coach_conversations;
++CREATE TRIGGER conversation_quota AFTER INSERT ON public.coach_conversations FOR EACH ROW EXECUTE FUNCTION public.coach_conversation_quota();
+--- a/commerce-coach/scripts/verify-hardening.ts
++++ b/commerce-coach/scripts/verify-hardening.ts
+@@ -0,0 +1,58 @@
++import 'dotenv/config';
++import { config } from 'dotenv';
++import assert from 'node:assert/strict';
++import { randomUUID } from 'node:crypto';
++import { readFile } from 'node:fs/promises';
++import { Pool } from 'pg';
++import { app } from '../server/app';
++import { takeBudget, publicAssets } from '../server/security';
++import { digest } from '../server/auth/password';
++import { closeDb, checkDatabase } from '../server/db';
++config({path:'data/admin.env',quiet:true});
++const owner=new Pool({connectionString:process.env.MIGRATION_DATABASE_URL});
++const server=app.listen(0,'127.0.0.1');await new Promise<void>(resolve=>server.once('listening',resolve));
++const base=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
++const key=`security-check:${randomUUID()}`;
++try {
++ await checkDatabase();
++ const manifest=JSON.parse(await readFile('dist/.vite/manifest.json','utf8'));
++ const entry=manifest['index.html'].file;const workspace=manifest['src/auth/AppShell.tsx'].file;
++ const image=Object.values(manifest).find((value:any)=>value.file?.endsWith('.jpg')) as {file:string};
++ assert(image);
++ for(const path of [`/${workspace}`,`/${image.file}`,`/%61ssets/${workspace.split('/').pop()}`,`//${workspace}`]) {
++   const response=await fetch(base+path);assert.equal(response.status,401,path);assert.match(response.headers.get('cache-control')||'',/no-store/);
++ }
++ for(const path of ['/',`/${entry}`])assert.equal((await fetch(base+path)).status,200,path);
++ const response=await fetch(base+'/');
++ assert.match(response.headers.get('content-security-policy')||'',/frame-ancestors 'none'/);
++ assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.equal(response.headers.get('x-frame-options'),'DENY');
++ assert.equal((await fetch(base+'/api/conversations')).status,401);
++ const publicFiles=publicAssets('dist/.vite/manifest.json');assert(!publicFiles.has('/'+workspace));
++ // Documentation-specific content must not occur in the public entry or its static imports.
++ for(const file of publicFiles)if(file.endsWith('.js'))assert(!(await readFile('dist'+file,'utf8')).includes('Instant Checkout'));
++ if(process.env.VERIFY_DEV==='true'){
++  for(const path of ['/src/coach/knowledgeBase.ts','/src/auth/AppShell.tsx','/%73rc/coach/knowledgeBase.ts'])assert.equal((await fetch('http://127.0.0.1:8010'+path)).status,401,path);
++  assert.equal((await fetch('http://127.0.0.1:8010/src/main.tsx')).status,200);
++  console.log('PASS: development source protection and public sign-in entry');
++ }
++ console.log('PASS: public sign-in, protected workspace/images, encoded paths, security headers, and API authentication');
++ const results=await Promise.all(Array.from({length:10},()=>takeBudget(key,3,60)));
++ assert.equal(results.filter(Boolean).length,3);
++ assert.equal(await takeBudget(key,3,60),false);
++ console.log('PASS: shared PostgreSQL rate budget is atomic under concurrent requests');
++ const client=await owner.connect();
++ try {
++  const user=(await client.query('SELECT id,organization_id FROM coach_private.users LIMIT 1')).rows[0];assert(user,'An existing local user is required; this check never creates accounts.');
++  for(const [scope,limit] of [['user',200],['org',2000]] as const){
++   await client.query('BEGIN');
++   try {
++    await client.query('INSERT INTO coach_private.conversation_usage(key,total) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET total=excluded.total',[`${scope}:${scope==='user'?user.id:user.organization_id}`,limit]);
++    await assert.rejects(client.query('INSERT INTO public.coach_conversations(id,organization_id,user_id,title,messages,state) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),user.organization_id,user.id,'quota test',JSON.stringify([{role:'user',content:'test'}]),'{}']),{code:'P0001'});
++   } finally {await client.query('ROLLBACK');}
++  }
++ }finally{client.release();}
++ console.log('PASS: per-user and organization storage quotas reject inserts; all quota-test changes rolled back');
++} finally {
++ await owner.query('DELETE FROM coach_private.request_budgets WHERE key=$1',[digest(key)]);
++ await new Promise<void>(resolve=>server.close(()=>resolve()));await closeDb();await owner.end();
++}
+--- a/commerce-coach/scripts/apply-hardening.ts
++++ b/commerce-coach/scripts/apply-hardening.ts
+@@ -0,0 +1,8 @@
++import { readFile } from 'node:fs/promises';
++import { config } from 'dotenv';
++import { Pool } from 'pg';
++config({path:'data/admin.env',quiet:true});
++const pool=new Pool({connectionString:process.env.MIGRATION_DATABASE_URL});
++const client=await pool.connect();
++try{await client.query('BEGIN');await client.query("SELECT pg_advisory_xact_lock(hashtext('commerce-coach-migrate'))");await client.query(await readFile(new URL('../server/migrations/004_hardening.sql',import.meta.url),'utf8'));await client.query('COMMIT');console.log('Hardening migration applied; no accounts or roles created.');}
++catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();await pool.end();}

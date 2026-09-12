@@ -1,0 +1,10 @@
+import { assertProductionConfiguration } from './production';
+import { startDocumentWorker } from './coach/worker';
+import { app } from './app';
+import { checkDatabase, closeDb } from './db';
+assertProductionConfiguration();
+await checkDatabase();
+const stopWorker = process.env.DOCUMENT_WORKER === 'false' ? async()=>{} : startDocumentWorker();
+const port = Number(process.env.PORT || 4010);
+const server = app.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`Commerce Coach: http://localhost:${port}`));
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => { void stopWorker().then(closeDb).then(() => process.exit(0)); }));

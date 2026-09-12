@@ -1,0 +1,242 @@
+--- a/server/coach/library.ts
++++ b/server/coach/library.ts
+@@ -0,0 +1,36 @@
++import {readFile,stat,readdir} from 'node:fs/promises';
++import {fileURLToPath} from 'node:url';
++import {posix} from 'node:path';
++import {parseOKF,okfTrust,okfRetrievable} from './okf';
++import {withSession} from '../db';
++export const bundleRoot=fileURLToPath(new URL('../../knowledge/commerce-okf/',import.meta.url));
++let cached:{mtime:number;documents:any[];assets:Set<string>}|undefined;
++export async function builtInLibrary(){
++ const mtime=(await stat(bundleRoot+'export-manifest.json')).mtimeMs;
++ if(cached?.mtime===mtime)return cached;
++ const manifest=JSON.parse(await readFile(bundleRoot+'export-manifest.json','utf8'));
++ const documents=await Promise.all(manifest.concepts.map(async(entry:any)=>{
++  const parsed=parseOKF(entry.path,await readFile(bundleRoot+entry.path,'utf8'));
++  return {id:'builtin:'+entry.path,title:entry.title,type:entry.type,category:entry.path.split('/')[0],path:entry.path,bundle:'Commerce playbook',origin:'builtin',body:parsed.body,metadata:parsed.metadata};
++ }));
++ cached={mtime,documents,assets:new Set(await readdir(bundleRoot+'assets/screenshots'))};return cached;
++}
++export async function libraryDocuments(session:string){
++ const builtIn=await builtInLibrary();
++ const rows=await withSession(session,async c=>(await c.query('SELECT id,name,content,concept_path,bundle_name,okf_metadata,status FROM public.coach_documents WHERE concept_path IS NOT NULL ORDER BY created_at DESC')).rows);
++ const imported=rows.map(row=>({id:'upload:'+row.id,title:row.name,type:row.okf_metadata.type,category:'workspace',path:row.concept_path,bundle:row.bundle_name,origin:'upload',body:parseOKF(row.concept_path,row.content).body,metadata:row.okf_metadata,processingStatus:row.status}));
++ return [...builtIn.documents,...imported];
++}
++export function resolveConceptLink(currentPath:string,target:string){
++ if(!target||/^[a-z][a-z0-9+.-]*:/i.test(target)||target.startsWith('//'))return undefined;
++ const path=target.split('#')[0];
++ return posix.normalize(path.startsWith('/')?path.slice(1):posix.join(posix.dirname(currentPath),path));
++}
++export function libraryDetail(document:any,documents:any[]){
++ const links=[...document.body.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/g)].map(match=>{
++  const path=resolveConceptLink(document.path,match[1]);
++  const found=documents.find(other=>other.origin===document.origin&&other.bundle===document.bundle&&other.path===path);
++  return {href:match[1],id:found?.id,title:found?.title};
++ });
++ return {...document,links,trust:okfTrust(document.metadata),current:okfRetrievable(document.metadata)};
++}
+--- a/server/routes/library.ts
++++ b/server/routes/library.ts
+@@ -0,0 +1,22 @@
++import {Router} from 'express';
++import {asyncRoute} from '../auth/middleware';
++import {builtInLibrary,bundleRoot,libraryDocuments,libraryDetail} from '../coach/library';
++export const libraryRoutes=Router();
++libraryRoutes.get('/',asyncRoute(async(req,res)=>{
++ const q=typeof req.query.q==='string'?req.query.q.trim().toLowerCase():'';
++ if(q.length>200){res.status(400).json({error:'Search must be under 200 characters.'});return;}
++ const documents=await libraryDocuments(req.sessionHash!);
++ const categories=[...new Set(documents.map(document=>document.category))];
++ const filtered=documents.filter(document=>(!req.query.category||document.category===req.query.category)&&(!q||`${document.title} ${document.path} ${document.body} ${JSON.stringify(document.metadata.tags??[])}`.toLowerCase().includes(q)));
++ res.json({categories,total:documents.length,items:filtered.map(({id,title,type,category,bundle,path})=>({id,title,type,category,bundle,path}))});
++}));
++libraryRoutes.get('/document',asyncRoute(async(req,res)=>{
++ const documents=await libraryDocuments(req.sessionHash!);const document=documents.find(entry=>entry.id===req.query.id);
++ if(!document){res.status(404).json({error:'This concept is unavailable.'});return;}
++ res.json(libraryDetail(document,documents));
++}));
++libraryRoutes.get('/assets/:filename',asyncRoute(async(req,res)=>{
++ const {assets}=await builtInLibrary();const name=req.params.filename;
++ if(!/^[a-zA-Z0-9._-]+\.(png|jpg)$/i.test(name)||!assets.has(name)){res.sendStatus(404);return;}
++ res.setHeader('Cache-Control','private, no-store');res.sendFile(bundleRoot+'assets/screenshots/'+name);
++}));
+--- a/server/coach/library.test.ts
++++ b/server/coach/library.test.ts
+@@ -0,0 +1,17 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {builtInLibrary,libraryDetail,resolveConceptLink} from './library';
++import {safeWebLink} from '../../src/coach/OKFArticle';
++test('built-in reader exposes the complete bundle and resolves concept links',async()=>{
++ const library=await builtInLibrary();assert.equal(library.documents.length,207);assert.equal(library.assets.size,112);
++ const linked=library.documents.map(doc=>libraryDetail(doc,library.documents)).find(doc=>doc.links.some(link=>link.id));
++ assert.ok(linked);assert.ok(linked.links.some(link=>library.documents.some(doc=>doc.id===link.id)));
++});
++test('reader links stay in their bundle and unsafe URL schemes are not clickable',()=>{
++ assert.equal(resolveConceptLink('knowledge/a.md','../workflows/b.md'),'workflows/b.md');
++ assert.equal(resolveConceptLink('knowledge/a.md','javascript:alert(1)'),undefined);
++ assert.equal(safeWebLink('javascript:alert(1)'),undefined);assert.equal(safeWebLink('data:text/html,test'),undefined);
++ assert.equal(safeWebLink('https://example.com/'),'https://example.com/');
++ const current={id:'upload:a',path:'a.md',origin:'upload',bundle:'A',body:'[Other](b.md)',metadata:{type:'Guide'}};
++ assert.equal(libraryDetail(current,[{id:'upload:b',path:'b.md',origin:'upload',bundle:'B'}]).links[0].id,undefined);
++});
+--- a/server/app.ts
++++ b/server/app.ts
+@@ -1,4 +1,5 @@
+ import 'dotenv/config';
++import { libraryRoutes } from './routes/library';
+ import { documentRoutes } from './routes/documents';
+ import express from 'express';
+ import { posix } from 'node:path';
+@@ -28,6 +29,7 @@
+ app.use('/api', requireAuth, requireReady);
+ app.use('/api/conversations', conversationRoutes);
+ app.use('/api/documents',documentRoutes);
++app.use('/api/library',libraryRoutes);
+ app.get('/api/config', (_req, res) => res.json({ openrouter: isOpenRouterAvailable(), gemini: isGeminiAvailable() }));
+ // Bound paid generation per client and globally; retrieval has its own limiter.
+ const calls = new Map<string, { count: number; until: number }>();
+--- a/src/coach/OKFReader.tsx
++++ b/src/coach/OKFReader.tsx
+@@ -0,0 +1,35 @@
++import {useEffect,useRef,useState} from 'react';
++import {api} from '../auth/client';
++import {EmptyState} from '../components/EmptyState';
++import {OKFArticle,safeWebLink} from './OKFArticle';
++type Item={id:string;title:string;type:string;category:string;bundle:string;path:string};
++type Article=Item&{body:string;metadata:Record<string,any>;origin:string;trust:string;current:boolean;links:{href:string;id?:string;title?:string}[]};
++const labels:Record<string,string>={knowledge:'Product knowledge',workflows:'Workflows',training:'Training',quizzes:'Quizzes','order-sources':'Order routing','visual-guides':'Visual guides',workspace:'Workspace bundles'};
++export function OKFReader(){
++ const [query,setQuery]=useState(''),[category,setCategory]=useState(''),[items,setItems]=useState<Item[]>([]),[categories,setCategories]=useState<string[]>([]);
++ const [selected,setSelected]=useState(''),[article,setArticle]=useState<Article|null>(null),[loading,setLoading]=useState(true),[reading,setReading]=useState(false);
++ const [error,setError]=useState(''),[articleError,setArticleError]=useState(''),[retry,setRetry]=useState(0),[total,setTotal]=useState(0),[mobileArticle,setMobileArticle]=useState(false);
++ const scroll=useRef<HTMLElement>(null);const [back,setBack]=useState<string[]>([]);
++ useEffect(()=>{let active=true;setLoading(true);setError('');const timer=setTimeout(()=>{void api(`/api/library?q=${encodeURIComponent(query)}&category=${encodeURIComponent(category)}`).then(data=>{if(!active)return;setItems(data.items);setCategories(data.categories);setTotal(data.total);setSelected(current=>current||data.items[0]?.id||'');}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});},180);return()=>{active=false;clearTimeout(timer);};},[query,category,retry]);
++ useEffect(()=>{if(!selected)return;let active=true;setReading(true);setArticleError('');setArticle(null);void api<Article>(`/api/library/document?id=${encodeURIComponent(selected)}`).then(data=>{if(active){setArticle(data);scroll.current?.scrollTo(0,0);}}).catch(e=>{if(active)setArticleError(e.message);}).finally(()=>{if(active)setReading(false);});return()=>{active=false;};},[selected,retry]);
++ const open=(id:string)=>{if(id!==selected){setBack(values=>[...values,selected].filter(Boolean));setSelected(id);}setMobileArticle(true);};
++ return <div className={`okf-reader ${mobileArticle?'show-article':''}`}>
++  <aside className="okf-navigation"><div className="okf-library-heading"><h1>Library</h1><p>{total} concepts · Commerce knowledge</p></div>
++   <label htmlFor="okf-search">Search knowledge</label><input id="okf-search" type="search" value={query} placeholder="Try warehouses or orders" onChange={e=>setQuery(e.target.value)}/>
++   <label htmlFor="okf-category">Category</label><select id="okf-category" value={category} onChange={e=>setCategory(e.target.value)}><option value="">All categories</option>{categories.map(value=><option key={value} value={value}>{labels[value]??value}</option>)}</select>
++   <div className="okf-results" aria-label="Knowledge concepts">
++    {loading?<p role="status">Searching…</p>:error?<EmptyState compact title="Library couldn’t be loaded" description={error} action={<button onClick={()=>setRetry(value=>value+1)}>Try again</button>}/>:!items.length?<EmptyState compact title="No matching concepts" description="Try another search or category." action={<button onClick={()=>{setQuery('');setCategory('');}}>Clear filters</button>}/>:<><p className="okf-result-count" role="status">{items.length} results</p>{items.map(item=><button className="okf-result" key={item.id} aria-current={selected===item.id?'page':undefined} onClick={()=>open(item.id)}><strong>{item.title}</strong><span>{labels[item.category]??item.category} · {item.bundle}</span></button>)}</>}
++   </div>
++  </aside>
++  <article ref={scroll} className="okf-reading"><div className="okf-reader-toolbar"><button className="okf-mobile-browse" onClick={()=>setMobileArticle(false)}>Browse concepts</button>{back.length>0&&<button onClick={()=>{setSelected(back[back.length-1]);setBack(values=>values.slice(0,-1));}}>← Back</button>}<span>Open Knowledge Format</span></div>
++   {reading?<p role="status">Loading article…</p>:articleError?<EmptyState title="This concept couldn’t be opened" description={articleError} action={<button onClick={()=>setRetry(value=>value+1)}>Try again</button>}/>:article?<div className="okf-article-content">
++    <p className="okf-breadcrumb">{article.bundle} / {article.path}</p><h1>{article.title}</h1><p className="okf-article-type">{article.type}{article.metadata.product_status?` · Product status: ${article.metadata.product_status}`:''}</p>
++    {!article.current&&<p className="okf-lifecycle-note">This concept is {article.metadata.status==='deprecated'?'deprecated':article.metadata.status==='draft'?'a draft':'stale'} and is excluded from Coach answers.</p>}
++    <OKFArticle body={article.body} links={article.links} origin={article.origin} onOpen={open}/>
++    {article.links.some(link=>link.id&&link.id!==selected)&&<section className="okf-related"><h2>Related concepts</h2>{[...new Map<string, Article["links"][number]>(article.links.filter(link=>link.id&&link.id!==selected).map(link=>[link.id!,link] as const)).values()].map(link=><button key={link.id} onClick={()=>open(link.id!)}>{link.title} →</button>)}</section>}
++    <section className="okf-sources"><h2>Sources and provenance</h2>{(article.metadata.sources??[]).map((source:any,index:number)=>{const href=safeWebLink(source.resource);return <p key={index}>{href?<a href={href} target="_blank" rel="noopener noreferrer">{source.title??source.resource}</a>:source.title??source.resource}</p>;})}<p>Declared verification: {article.trust}. {article.metadata.generated?.by?`Generated by ${article.metadata.generated.by}.`:''}</p></section>
++    <details className="okf-raw"><summary>View complete metadata</summary><pre>{JSON.stringify(article.metadata,null,2)}</pre></details>
++   </div>:<EmptyState title="Choose a concept" description="Browse the categories or search for a topic to start reading."/>}
++  </article>
++ </div>;
++}
+--- a/src/coach/OKFArticle.tsx
++++ b/src/coach/OKFArticle.tsx
+@@ -0,0 +1,27 @@
++import {type ReactNode} from 'react';
++type Link={href:string;id?:string;title?:string};
++export function safeWebLink(href:string){try{const url=new URL(href);return ['https:','http:'].includes(url.protocol)?url.href:undefined;}catch{return undefined;}}
++export function OKFArticle({body,links,origin,onOpen}:{body:string;links:Link[];origin:string;onOpen:(id:string)=>void}){
++ const inline=(text:string):ReactNode=>{
++  const pattern=/(!?\[([^\]]*)\]\(([^)]+)\)|\*\*([^*]+)\*\*|`([^`]+)`)/g;const parts:ReactNode[]=[];let start=0;
++  for(const match of text.matchAll(pattern)){parts.push(text.slice(start,match.index));const key=match.index!;
++   if(match[4])parts.push(<strong key={key}>{match[4]}</strong>);
++   else if(match[5])parts.push(<code key={key}>{match[5]}</code>);
++   else if(match[1].startsWith('!')){
++    const asset=origin==='builtin'&&/^\/assets\/screenshots\/[a-zA-Z0-9._-]+\.(png|jpg)$/.test(match[3])?'/api/library/assets/'+match[3].split('/').pop():undefined;
++    parts.push(asset?<a key={key} href={asset} target="_blank" rel="noopener noreferrer"><img loading="lazy" src={asset} alt={match[2]}/></a>:<span key={key}>[Image: {match[2]}]</span>);
++   }else{const internal=links.find(link=>link.href===match[3]&&link.id);const external=safeWebLink(match[3]);parts.push(internal?<button key={key} className="okf-text-link" onClick={()=>onOpen(internal.id!)}>{match[2]}</button>:external?<a key={key} href={external} target="_blank" rel="noopener noreferrer">{match[2]}</a>:<span key={key}>{match[2]} <small>(reference unavailable)</small></span>);}
++   start=key+match[0].length;
++  }parts.push(text.slice(start));return parts;
++ };
++ const lines=body.split('\n');const output:ReactNode[]=[];
++ for(let i=0;i<lines.length;i++){
++  const line=lines[i];if(!line.trim())continue;
++  if(/^\s*```/.test(line)){const code:string[]=[];while(++i<lines.length&&!/^\s*```/.test(lines[i]))code.push(lines[i]);output.push(<pre key={i}><code>{code.join('\n')}</code></pre>);continue;}
++  const heading=/^(#{1,6})\s+(.+)$/.exec(line);if(heading){const Heading=heading[1].length<=2?'h2':'h3';output.push(<Heading key={i}>{inline(heading[2])}</Heading>);continue;}
++  if(/^\s*(?:[-*]|\d+\.)\s+/.test(line)){const ordered=/^\s*\d+\./.test(line);const entries:ReactNode[]=[];const pattern=ordered?/^\s*\d+\.\s+/:/^\s*[-*]\s+/;while(i<lines.length&&pattern.test(lines[i])){entries.push(<li key={i}>{inline(lines[i].replace(pattern,''))}</li>);i++;}i--;const List=ordered?'ol':'ul';output.push(<List key={i}>{entries}</List>);continue;}
++  if(line.trim().startsWith('|')){const rows:string[]=[];while(i<lines.length&&lines[i].trim().startsWith('|'))rows.push(lines[i++]);i--;output.push(<div key={i} className="okf-table"><table><tbody>{rows.filter(row=>!/^\|[\s:|\-]+\|$/.test(row.trim())).map((row,index)=><tr key={index}>{row.trim().replace(/^\||\|$/g,'').split('|').map((cell,j)=>index===0?<th key={j}>{inline(cell.trim())}</th>:<td key={j}>{inline(cell.trim())}</td>)}</tr>)}</tbody></table></div>);continue;}
++  output.push(<p key={i}>{inline(line)}</p>);
++ }
++ return <div className="okf-prose">{output}</div>;
++}
+--- a/src/auth/AppShell.tsx
++++ b/src/auth/AppShell.tsx
+@@ -1,3 +1,4 @@
++import { OKFReader } from '../coach/OKFReader';
+ import { useState } from 'react';
+ import { ArrowUpRight, ChevronDown, LogOut, MessageSquare, ShieldCheck, KeyRound, Moon, Sun } from 'lucide-react';
+ import CommerceCoachPage from '../pages/CommerceCoachPage';
+@@ -9,9 +10,9 @@
+   return <div className="app-shell"><header className="workspace-header">
+     <a href="/" className="workspace-brand" aria-label="Commerce Coach home"><span className="brand-symbol" aria-hidden="true">c</span><strong>Commerce<span>Coach</span></strong></a>
+     <span className="workspace-divider"/><span className="workspace-name">{user.organization_name}</span>
+-    <nav className="workspace-nav" aria-label="Workspace"><button aria-current={page==='coach'?'page':undefined} onClick={()=>setPage('coach')}><MessageSquare size={15}/>Coach</button>{user.role==='admin'&&<><button aria-current={page==='knowledge'?'page':undefined} onClick={()=>setPage('knowledge')}>Knowledge</button><button aria-current={page==='users'?'page':undefined} onClick={()=>setPage('users')}><ShieldCheck size={15}/>Team access</button></>}</nav>
++    <nav className="workspace-nav" aria-label="Workspace"><button aria-current={page==='coach'?'page':undefined} onClick={()=>setPage('coach')}><MessageSquare size={15}/>Coach</button><button aria-current={page==='library'?'page':undefined} onClick={()=>setPage('library')}>Library</button>{user.role==='admin'&&<><button aria-current={page==='knowledge'?'page':undefined} onClick={()=>setPage('knowledge')}>Knowledge</button><button aria-current={page==='users'?'page':undefined} onClick={()=>setPage('users')}><ShieldCheck size={15}/>Team access</button></>}</nav>
+     <button className="appearance-toggle" aria-label={dark?'Use light appearance':'Use dark appearance'} onClick={()=>{const next=!dark;setDark(next);document.documentElement.dataset.appearance=next?'dark':'light';try{localStorage.setItem('coach-appearance',next?'dark':'light');}catch{}}}>{dark?<Sun size={17}/>:<Moon size={17}/>}</button>
+     <details className="account-menu"><summary aria-label={`Account menu for ${user.name}`}><span className="account-avatar">{user.name.slice(0,1)}</span><span className="account-name">{user.name}<small>{user.role}</small></span><ChevronDown size={14}/></summary><div className="account-popover"><p>{user.email}</p><button onClick={event=>{setPage('password');event.currentTarget.closest('details')?.removeAttribute('open');}}><KeyRound size={15}/>Change password</button><button onClick={()=>void logout().catch(e=>setError(e.message))}><LogOut size={15}/>Sign out</button></div></details>
+   </header>{error&&<p role="alert" className="bg-red-50 p-3 text-red-700">{error}</p>}
+-  <main className="min-h-0 flex-1">{page==='knowledge'&&user.role==='admin'?<KnowledgePanel/>:page==='users'&&user.role==='admin'?<UsersPanel/>:page==='password'?<div className="grid h-full place-items-center bg-gray-50 p-6"><PasswordForm done={()=>window.dispatchEvent(new Event('coach-session-expired'))}/></div>:<CommerceCoachPage/>}</main></div>;
++  <main className="min-h-0 flex-1">{page==='library'?<OKFReader/>:page==='knowledge'&&user.role==='admin'?<KnowledgePanel/>:page==='users'&&user.role==='admin'?<UsersPanel/>:page==='password'?<div className="grid h-full place-items-center bg-gray-50 p-6"><PasswordForm done={()=>window.dispatchEvent(new Event('coach-session-expired'))}/></div>:<CommerceCoachPage/>}</main></div>;
+ }
+--- a/src/index.css
++++ b/src/index.css
+@@ -307,3 +307,17 @@
+ @media(max-width:767px){.workspace-header {flex-wrap:wrap;height:auto;min-height:58px;padding-top:10px;padding-bottom:10px}.workspace-nav {order:5;width:100%;height:34px;gap:20px}.appearance-toggle {margin-left:auto}.knowledge-page {padding:24px 16px}.knowledge-documents article {align-items:flex-start;flex-direction:column;gap:12px}}
+ 
+ .knowledge-metadata {max-width:340px;font-size:12px;color:var(--muted)}.knowledge-metadata summary {cursor:pointer;color:var(--text)}.knowledge-metadata pre {max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:12px}.knowledge-upload #okf-bundle {border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text);padding:8px 12px;max-width:360px}
++
++.okf-reader {height:100%;display:grid;grid-template-columns:300px minmax(0,1fr);color:var(--text)}
++.okf-navigation {min-height:0;display:flex;flex-direction:column;padding:24px 18px;background:var(--canvas);border-right:1px solid var(--line)}
++.okf-library-heading h1 {font-size:24px;font-weight:500;letter-spacing:-.5px}.okf-library-heading p {font-size:12px;color:var(--muted);margin-top:4px;margin-bottom:22px}
++.okf-navigation label {font-size:12px;font-weight:500;margin-bottom:6px}.okf-navigation input,.okf-navigation select {padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--text);width:100%;font-size:13px;margin-bottom:16px}
++.okf-results {min-height:0;overflow:auto;margin-top:4px}.okf-result-count {font-size:12px;color:var(--muted);padding:8px 10px}
++.okf-result {display:block;width:100%;text-align:left;padding:12px 10px;border-radius:7px;margin:2px 0}.okf-result:hover {background:var(--surface-hover)}.okf-result[aria-current] {background:var(--surface);box-shadow:inset 3px 0 var(--accent)}
++.okf-result strong {display:block;font-size:14px;font-weight:500;line-height:1.5}.okf-result span {display:block;font-size:11px;color:var(--muted);margin-top:4px}
++.okf-reading {min-width:0;overflow:auto;background:var(--surface);padding:24px 48px 64px}.okf-reader-toolbar {display:flex;align-items:center;gap:14px;max-width:820px;margin:0 auto 32px}.okf-reader-toolbar span {font-size:11px;letter-spacing:.05em;color:var(--muted);margin-left:auto}.okf-reader-toolbar button {font-size:13px;color:var(--muted)}
++.okf-article-content {max-width:820px;margin:auto}.okf-breadcrumb {font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin-bottom:12px}.okf-article-content>h1 {font-size:34px;line-height:1.25;font-weight:500;letter-spacing:-.8px}.okf-article-type {font-size:13px;color:var(--muted);margin-top:12px;padding-bottom:28px;border-bottom:1px solid var(--line)}
++.okf-prose {font-size:15px;line-height:1.9;overflow-wrap:anywhere}.okf-prose h2 {font-size:23px;line-height:1.4;font-weight:500;margin:32px 0 14px}.okf-prose h3 {font-size:18px;font-weight:500;margin:24px 0 12px}.okf-prose p {margin:14px 0}.okf-prose ul,.okf-prose ol {padding-left:24px;margin:16px 0}.okf-prose ul {list-style:disc}.okf-prose ol {list-style:decimal}.okf-prose li {margin:8px 0}.okf-prose a,.okf-text-link,.okf-sources a {color:var(--accent);text-decoration:underline;text-underline-offset:3px}.okf-text-link {text-align:left;font:inherit}
++.okf-prose img {max-width:100%;max-height:540px;object-fit:contain;object-position:left;border:1px solid var(--line);border-radius:8px;margin:20px 0}.okf-prose code {font-size:.9em;background:var(--surface-muted);padding:2px 4px;border-radius:4px}.okf-prose pre,.okf-raw pre {padding:16px;background:var(--surface-muted);border-radius:8px;overflow:auto;white-space:pre-wrap;max-height:480px;font-size:12px}.okf-table {overflow:auto}.okf-table th,.okf-table td {border:1px solid var(--line);padding:8px 12px;text-align:left}
++.okf-related,.okf-sources,.okf-raw {border-top:1px solid var(--line);padding-top:24px;margin-top:32px}.okf-related h2,.okf-sources h2 {font-size:17px;font-weight:500;margin-bottom:12px}.okf-related button {display:block;color:var(--accent);padding:6px 0;text-align:left;font-size:14px}.okf-sources p {font-size:13px;line-height:1.7;color:var(--muted)}.okf-raw summary {font-size:13px;cursor:pointer;margin-bottom:14px}.okf-lifecycle-note {margin:20px 0;padding:12px;background:var(--accent-soft);font-size:13px}.okf-mobile-browse {display:none}
++@media(max-width:767px){.okf-reader {display:block}.okf-navigation {height:100%;border:0}.okf-reading {display:none;height:100%;padding:20px 22px 48px}.okf-reader.show-article .okf-navigation {display:none}.okf-reader.show-article .okf-reading {display:block}.okf-mobile-browse {display:block}.okf-article-content>h1 {font-size:28px}.okf-reader-toolbar {margin-bottom:24px}.workspace-nav {gap:16px}}
+--- a/package.json
++++ b/package.json
+@@ -7,13 +7,13 @@
+     "dev": "concurrently -n \"api,web\" -c \"yellow,cyan\" \"npm run server\" \"npm run client\"",
+     "build": "vite build",
+     "lint": "tsc --noEmit",
+-    "test:coach": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/documents.test.ts server/coach/okf.test.ts",
++    "test:coach": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/documents.test.ts server/coach/okf.test.ts server/coach/library.test.ts",
+     "coach:eval": "node --import tsx scripts/evaluate-coach-workflows.ts",
+     "embeddings:build": "node --import tsx scripts/build-coach-embeddings.ts",
+     "server": "node --watch --import tsx server/index.ts",
+     "client": "vite --host 127.0.0.1 --port 8010",
+     "start": "node --import tsx server/index.ts",
+-    "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/documents.test.ts server/coach/okf.test.ts",
++    "test": "node --import tsx --test src/coach/embeddings/embeddingBase.test.ts src/coach/semanticRetrieval.test.ts src/coach/knowledgeBase.test.ts src/coach/screenshots/manifest.test.ts src/coach/queryIntent.test.ts src/coach/responseEngine.intent.test.ts src/coach/workflows/registry.test.ts src/coach/workflows/evaluate.test.ts src/coach/feedback.test.ts server/coach/config.test.ts server/coach/openrouterEmbeddingProvider.test.ts server/coach/buildEmbeddingIndex.test.ts server/coach/snapshotStore.test.ts server/coach/retrievalService.test.ts server/coach/feedbackStore.test.ts server/coach/documents.test.ts server/coach/okf.test.ts server/coach/library.test.ts",
+     "db:init": "node --import tsx scripts/init-db.ts",
+     "db:backup": "node --import tsx scripts/backup-db.ts",
+     "db:import": "node --import tsx scripts/import-feedback.ts",
+--- a/README.md
++++ b/README.md
+@@ -174,3 +174,6 @@
+ Knowledge now supports Google OKF v0.2 folder/multi-file imports and batch processing. Metadata and concept paths are retained; draft, deprecated and stale concepts stay out of answers. See OKF_INTEGRATION.md and examples/okf.
+ 
+ The complete built-in knowledge export is available at knowledge/commerce-okf/index.md. Regenerate with npm run knowledge:export-okf. See OKF_EXPORT.md for coverage and import limits.
++
++### In-app Library
++Signed-in users can open **Library** to search and read all 207 built-in OKF concepts, with category filters, inline screenshots, related concepts, source references, and complete metadata. Workspace OKF concepts follow existing document RLS permissions. Built-in articles do not consume upload quota. Uploaded image attachments are not yet supported.
+--- a/VERIFICATION.md
++++ b/VERIFICATION.md
+@@ -43,3 +43,5 @@
+ - [x] OKF: migration 006 applied; TypeScript, 65 tests, build and local atomic-import/metadata/lifecycle checks pass. Live provider calls remain untested.
+ 
+ - [x] Built-in OKF export: 207 source records round-trip through YAML, all concepts pass parsing, and bundle-local links resolve. 112 referenced screenshots copied. TypeScript checked. See OKF_EXPORT.md.
++
++- [x] Library reader: TypeScript, production build, 65 existing tests and 2 new library tests pass. Browser verified 207 concepts, warehouse search, linked visual guide, and inline screenshot loading. Unauthenticated Library API returns 401.

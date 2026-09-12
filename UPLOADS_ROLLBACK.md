@@ -1,0 +1,1 @@
+Restore the source package from /tmp/commerce-coach-before-uploads.zip and rebuild. Migration 005 is additive; retain uploaded documents rather than dropping their table. Disable the upload UI/API together if rolling back. Recheck login, conversation history, and original knowledge retrieval. No existing conversation data is modified by this migration.

@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: commerce_coach
+      POSTGRES_USER: coach_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coach_owner -d commerce_coach"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    build: .
+    command: ["npm", "run", "db:migrate"]
+    environment:
+      MIGRATION_DATABASE_URL: postgresql://coach_owner:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/commerce_coach
+      DATABASE_URL: postgresql://coach_runtime:${COACH_DB_PASSWORD:?Set COACH_DB_PASSWORD}@db:5432/commerce_coach
+      AUTH_DATABASE_URL: postgresql://coach_login:${COACH_AUTH_PASSWORD:?Set COACH_AUTH_PASSWORD}@db:5432/commerce_coach
+    depends_on:
+      db:
+        condition: service_healthy
+  coach:
+    build: .
+    ports:
+      - "127.0.0.1:4010:4010"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4010
+      DATABASE_URL: postgresql://coach_runtime:${COACH_DB_PASSWORD:?Set COACH_DB_PASSWORD}@db:5432/commerce_coach
+      AUTH_DATABASE_URL: postgresql://coach_login:${COACH_AUTH_PASSWORD:?Set COACH_AUTH_PASSWORD}@db:5432/commerce_coach
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      APP_ORIGINS: ${APP_ORIGINS:-http://localhost:4010}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - coach-data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+volumes:
+  coach-data:
+  postgres-data:

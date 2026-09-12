@@ -1,0 +1,1 @@
+Restore source and package manifests from /tmp/commerce-coach-before-security.zip and rebuild. Migration 004 is additive: retain its protection tables/functions unless a deliberate database rollback is needed. No conversation data is deleted. Verify login, history and asset access after rollback. Do not restore older public documentation bundles on a public deployment.

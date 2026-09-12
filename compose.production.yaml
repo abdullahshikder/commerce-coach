@@ -1,0 +1,88 @@
+# Standalone production configuration. Run with --env-file deploy/production.env.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: commerce_coach
+      POSTGRES_USER: coach_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U coach_owner -d commerce_coach]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    image: ${COACH_IMAGE:?Set an immutable release image tag}
+    command: [npm, run, db:migrate]
+    environment:
+      MIGRATION_DATABASE_URL_FILE: /run/secrets/migration_url
+      DATABASE_URL_FILE: /run/secrets/database_url
+      AUTH_DATABASE_URL_FILE: /run/secrets/auth_url
+    secrets: [migration_url, database_url, auth_url]
+    depends_on:
+      db: {condition: service_healthy}
+  coach:
+    image: ${COACH_IMAGE:?Set an immutable release image tag}
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4010
+      APP_ORIGINS: https://${COACH_DOMAIN:?Set the public domain}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      AUTH_DATABASE_URL_FILE: /run/secrets/auth_url
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_key
+      GEMINI_API_KEY_FILE: /run/secrets/gemini_key
+      GOOGLE_CLIENT_ID_FILE: /run/secrets/google_client_id
+      GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      # Express ignores forwarded IP headers until exact trusted proxies are configured.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+    secrets: [database_url, auth_url, openrouter_key, gemini_key, google_client_id, google_client_secret]
+    volumes: [coach-data:/app/data]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    stop_grace_period: 90s
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging: {driver: json-file, options: {max-size: 10m, max-file: '5'}}
+  proxy:
+    image: caddy:2
+    ports: ['80:80', '443:443']
+    environment:
+      COACH_DOMAIN: ${COACH_DOMAIN:?Set the public domain}
+    volumes: [./deploy/Caddyfile:/etc/caddy/Caddyfile:ro, caddy-data:/data, caddy-config:/config]
+    depends_on:
+      coach: {condition: service_healthy}
+    restart: unless-stopped
+  backup:
+    image: postgres:17
+    entrypoint: [/bin/sh, /opt/backup.sh]
+    environment: {PGHOST: db, PGPORT: '5432', PGDATABASE: commerce_coach, PGUSER: coach_owner}
+    secrets: [postgres_password]
+    volumes: [./deploy/backup.sh:/opt/backup.sh:ro, ./backups:/backups]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'test -n "$$(find /backups -name "*.dump" -mmin -1500 -print -quit)"']
+      interval: 1h
+      start_period: 5m
+      retries: 1
+secrets:
+  postgres_password: {file: ./deploy/secrets/postgres_password}
+  migration_url: {file: ./deploy/secrets/migration_url}
+  database_url: {file: ./deploy/secrets/database_url}
+  auth_url: {file: ./deploy/secrets/auth_url}
+  openrouter_key: {file: ./deploy/secrets/openrouter_key}
+  gemini_key: {file: ./deploy/secrets/gemini_key}
+  google_client_id: {file: ./deploy/secrets/google_client_id}
+  google_client_secret: {file: ./deploy/secrets/google_client_secret}
+volumes:
+  postgres-data:
+  coach-data:
+  caddy-data:
+  caddy-config:
