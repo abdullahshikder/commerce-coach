@@ -111,14 +111,14 @@ CREATE POLICY attachments_insert ON public.coach_attachments FOR INSERT TO coach
 REVOKE ALL ON public.coach_attachments FROM PUBLIC,coach_app,coach_auth;
 GRANT SELECT,INSERT ON public.coach_attachments TO coach_app;
 CREATE OR REPLACE FUNCTION public.coach_attachment_quota() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE d public.coach_documents; a record;
+DECLARE d public.coach_documents; actor record;
 BEGIN
- SELECT * INTO a FROM public.coach_actor();
+ SELECT * INTO actor FROM public.coach_actor();
  SELECT * INTO d FROM public.coach_documents WHERE id=NEW.document_id FOR UPDATE;
- IF a.id IS NULL OR a.must_change_password OR a.role<>'admin' OR a.organization_id<>NEW.organization_id OR d.organization_id<>NEW.organization_id OR d.publication<>'draft' THEN RAISE EXCEPTION 'Draft administrator required' USING ERRCODE='42501'; END IF;
+ IF actor.id IS NULL OR actor.must_change_password OR actor.role<>'admin' OR actor.organization_id<>NEW.organization_id OR d.organization_id<>NEW.organization_id OR d.publication<>'draft' THEN RAISE EXCEPTION 'Draft administrator required' USING ERRCODE='42501'; END IF;
  PERFORM pg_advisory_xact_lock(hashtext(NEW.organization_id::text));
  IF (SELECT count(*) FROM public.coach_attachments WHERE organization_id=NEW.organization_id)>=100 OR (SELECT coalesce(sum(octet_length(data)),0) FROM public.coach_attachments WHERE organization_id=NEW.organization_id)+octet_length(NEW.data)>52428800 THEN RAISE EXCEPTION 'Attachment quota reached' USING ERRCODE='22023'; END IF;
- INSERT INTO public.coach_audit(organization_id,actor_id,action,document_id) SELECT NEW.organization_id,a.id,'attachment_added',NEW.document_id FROM public.coach_actor() a;
+ INSERT INTO public.coach_audit(organization_id,actor_id,action,document_id) VALUES(NEW.organization_id,actor.id,'attachment_added',NEW.document_id);
  RETURN NEW;
 END $$;
 REVOKE ALL ON FUNCTION public.coach_attachment_quota() FROM PUBLIC,coach_app,coach_auth;

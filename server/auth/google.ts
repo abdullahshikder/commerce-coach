@@ -4,6 +4,7 @@ import { OAuth2Client, CodeChallengeMethod, type TokenPayload } from 'google-aut
 import { authPool } from '../db';
 import { digest, randomToken } from './password';
 import { asyncRoute, cookieName, setSessionCookie } from './middleware';
+import { WORKSPACE_ORGANIZATION_SLUG } from './workspace';
 
 export function googleConfig(environment: NodeJS.ProcessEnv = process.env) {
   const clientId = environment.GOOGLE_CLIENT_ID?.trim();
@@ -47,13 +48,11 @@ export function createGoogleRouter(exchange: GoogleExchange = exchangeGoogleCode
     for (const [key,bucket] of attempts) if (bucket.until<=now) attempts.delete(key);
     const key=req.ip || 'unknown';const bucket=attempts.get(key) || {count:0,until:now+600000};attempts.set(key,bucket);
     if (++bucket.count>20) {res.status(429).json({error:'Too many Google sign-in attempts. Try again later.'});return;}
-    const organization = typeof req.body?.organization === 'string' ? req.body.organization.trim().toLowerCase() : '';
-    if (!/^[a-z0-9-]{2,80}$/.test(organization)) { res.status(400).json({error:'Enter your organization before continuing with Google.'});return; }
     const allowed = (process.env.APP_ORIGINS || 'http://localhost:4010,http://localhost:8010,http://127.0.0.1:4010,http://127.0.0.1:8010').split(',');
     const origin = req.headers.origin || new URL(config.redirectUri).origin;
     if (!allowed.includes(origin)) {res.status(403).json({error:'Origin is not allowed.'});return;}
     const state=randomToken(), browser=randomToken(), nonce=randomToken(), verifier=randomToken();
-    await authPool.query('SELECT public.coach_google_begin($1,$2,$3,$4,$5,$6)',[digest(state),digest(browser),organization,verifier,nonce,origin]);
+    await authPool.query('SELECT public.coach_google_begin($1,$2,$3,$4,$5,$6)',[digest(state),digest(browser),WORKSPACE_ORGANIZATION_SLUG,verifier,nonce,origin]);
     const secure=cookieName().startsWith('__Host-');
     // This short-lived cookie must survive Google's top-level cross-site GET callback.
     res.cookie(secure?'__Host-coach_google':'coach_google',browser,{httpOnly:true,secure,sameSite:'lax',path:'/',maxAge:600000});

@@ -4,7 +4,7 @@ import {EmptyState} from '../components/EmptyState';
 import {OKFArticle,safeWebLink} from './OKFArticle';
 type Item={id:string;title:string;type:string;category:string;bundle:string;path:string};
 type Article=Item&{publication?:string;images?:{path:string;url:string}[];body:string;metadata:Record<string,any>;origin:string;trust:string;current:boolean;links:{href:string;id?:string;title?:string}[]};
-const labels:Record<string,string>={faqs:'Merchant FAQs',knowledge:'Product knowledge',workflows:'Workflows',training:'Training',quizzes:'Quizzes','order-sources':'Order routing','visual-guides':'Visual guides',workspace:'Workspace bundles'};
+const labels:Record<string,string>={faqs:'Merchant FAQs',tutorials:'Tutorial videos',knowledge:'Product knowledge',workflows:'Workflows',training:'Training',quizzes:'Quizzes','order-sources':'Order routing','visual-guides':'Visual guides',workspace:'Workspace bundles'};
 export function OKFReader(){
  const [query,setQuery]=useState(''),[category,setCategory]=useState(''),[items,setItems]=useState<Item[]>([]),[categories,setCategories]=useState<string[]>([]);
  const [selected,setSelected]=useState(''),[article,setArticle]=useState<Article|null>(null),[loading,setLoading]=useState(true),[reading,setReading]=useState(false);

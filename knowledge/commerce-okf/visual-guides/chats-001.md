@@ -25,6 +25,9 @@ commerce_record:
     - create customer
     - create order
     - conversation
+  tutorials:
+    - title: Connect Instagram
+      url: https://www.youtube.com/watch?v=mWQHsZh2rwk&list=PLMN1y8VZcPd8
   screenshots:
     - src: image70.jpg
       caption: View the Chats empty state before connecting a channel.

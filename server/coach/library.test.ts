@@ -3,9 +3,20 @@ import assert from 'node:assert/strict';
 import {builtInLibrary,libraryDetail,resolveConceptLink} from './library';
 import {safeWebLink} from '../../src/coach/OKFArticle';
 test('built-in reader exposes the complete bundle and resolves concept links',async()=>{
- const library=await builtInLibrary();assert.equal(library.documents.length,320);assert.equal(library.assets.size,112);
+ const library=await builtInLibrary();assert.equal(library.documents.length,334);assert.equal(library.assets.size,112);
  const linked=library.documents.map(doc=>libraryDetail(doc,library.documents)).find(doc=>doc.links.some(link=>link.id));
  assert.ok(linked);assert.ok(linked.links.some(link=>library.documents.some(doc=>doc.id===link.id)));
+});
+test('official videos are browsable as source-linked tutorials with visual guides',async()=>{
+ const {documents}=await builtInLibrary();
+ const tutorial=documents.find(doc=>doc.path==='tutorials/tutorial-video-009.md');
+ assert.equal(tutorial?.category,'tutorials');
+ assert.equal(tutorial?.type,'Tutorial Video');
+ assert.equal(tutorial?.metadata.sources?.[0]?.resource,'https://www.youtube.com/watch?v=lngsxYOaWDY&list=PLMN1y8VZcPd8');
+ const detail=libraryDetail(tutorial,documents);
+ assert.match(detail.body,/Daraz কানেক্ট করে প্রোডাক্ট import করব কীভাবে/);
+ assert.ok(detail.links.some(link=>link.id==='builtin:visual-guides/addons-daraz.md'));
+ assert.ok(detail.links.some(link=>link.id==='builtin:visual-guides/daraz-001.md'));
 });
 
 test('merchant FAQs are browsable and expand their connected step-by-step guides',async()=>{

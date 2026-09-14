@@ -1,0 +1,246 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: commerce-coach
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: commerce-coach
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: coach-data
+  namespace: commerce-coach
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: commerce-coach
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_DB
+              value: commerce_coach
+            - name: POSTGRES_USER
+              value: coach_owner
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-coach-secrets
+                  key: postgres-password
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, coach_owner, -d, commerce_coach]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, coach_owner, -d, commerce_coach]
+            failureThreshold: 6
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: commerce-coach
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: commerce-coach
+spec:
+  backoffLimit: 8
+  template:
+    metadata:
+      labels:
+        app: commerce-coach-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: commerce-coach:minikube-20260913-214333
+          imagePullPolicy: Never
+          command: [npm, run, db:migrate]
+          env:
+            - name: MIGRATION_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-coach-secrets
+                  key: migration-database-url
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-coach-secrets
+                  key: database-url
+            - name: AUTH_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-coach-secrets
+                  key: auth-database-url
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commerce-coach
+  namespace: commerce-coach
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: commerce-coach
+  template:
+    metadata:
+      labels:
+        app: commerce-coach
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: commerce-coach
+          image: commerce-coach:minikube-20260913-214333
+          imagePullPolicy: Never
+          env:
+            - name: NODE_ENV
+              value: development
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "4010"
+            - name: APP_ORIGINS
+              value: http://localhost:4010,http://127.0.0.1:4010,http://localhost:4011,http://127.0.0.1:4011
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-coach-secrets
+                  key: database-url
+            - name: AUTH_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-coach-secrets
+                  key: auth-database-url
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-coach-secrets
+                  key: openrouter-api-key
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: commerce-coach-secrets
+                  key: gemini-api-key
+          ports:
+            - name: http
+              containerPort: 4010
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            failureThreshold: 6
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: coach-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commerce-coach
+  namespace: commerce-coach
+spec:
+  selector:
+    app: commerce-coach
+  ports:
+    - name: http
+      port: 4010
+      targetPort: http

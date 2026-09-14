@@ -41,6 +41,9 @@ commerce_record:
     - select products
     - meta ads
     - meta business manager
+  tutorials:
+    - title: Create and publish an Online Store
+      url: https://www.youtube.com/watch?v=pnNK5kneHzY&list=PLMN1y8VZcPd8
   screenshots:
     - src: image30.jpg
       caption: Open Online Stores and click Manage on the store you want to use.

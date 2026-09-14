@@ -12,13 +12,14 @@ import { securityHeaders, publicAssets } from './security';
 import { fileURLToPath } from 'node:url';
 import { conversationRoutes } from './routes/conversations';
 import coachRoutes from './routes/coach';
-import { pool, withSession } from './db';
+import { checkDatabaseConnections, pool, withSession } from './db';
 import { authRoutes, userRoutes } from './auth/routes';
 import { asyncRoute, requireAuth, requireReady, sameOrigin } from './auth/middleware';
 import { generateOpenRouterResponse, isOpenRouterAvailable } from './coach/openrouterService';
 import { generateLLMResponse, isGeminiAvailable } from './coach/geminiService';
 import { PgQueryStore } from './coach/pgQueryStore';
 import { PgAnalyticsStore, type AnalyticsProvider, type GenerationFailureKind } from './coach/pgAnalyticsStore';
+import { withTokenUsage } from './coach/tokenUsage';
 import type { ChatMessage, ConversationState } from '../src/coach/responseEngine';
 
 export const app = express();
@@ -31,6 +32,8 @@ const parseJson=express.json({ limit: '256kb' });
 app.use((req,res,next)=>(req.path==='/api/documents/import'||/^\/api\/documents\/[0-9a-f-]{36}\/attachments$/i.test(req.path))?next():parseJson(req,res,next));
 app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.use('/api', sameOrigin);
+app.get('/api/live', (_req, res) => { res.json({ status: 'ok' }); });
+app.get('/api/ready', asyncRoute(async (_req, res) => { await checkDatabaseConnections(); res.json({ status: 'ok' }); }));
 app.get('/api/health', asyncRoute(async (_req, res) => { await pool.query('SELECT 1'); res.json({ status: 'ok' }); }));
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -78,7 +81,10 @@ app.post('/api/coach/generate', asyncRoute(async (req, res) => {
   let generated;
   try {
     const generate = provider === 'openrouter' ? generateOpenRouterResponse : generateLLMResponse;
-    generated = await generate(messages as ChatMessage[], state as ConversationState, retrievalContext, freshScreenContext(screenContext));
+    generated = await withTokenUsage(
+      usage => withSession(req.sessionHash!, client => new PgAnalyticsStore(client).recordTokenUsage(usage.provider, usage.phase, usage.inputTokens, usage.outputTokens)),
+      () => generate(messages as ChatMessage[], state as ConversationState, retrievalContext, freshScreenContext(screenContext)),
+    );
   } catch {
     await recordGenerationFailure(req.sessionHash!, provider, 'provider-request');
     res.status(502).json({ error: 'AI provider request failed.' });
@@ -118,8 +124,9 @@ app.use((req,res,next)=>{
 app.use('/.vite',(_req,res)=>{res.sendStatus(404);});
 app.use(express.static(dist, {setHeaders(res,path){if(/\.(js|jpg|png)$/.test(path))res.setHeader('Cache-Control','private, no-store');}}));
 app.get('*', (_req, res) => res.sendFile(`${dist}index.html`));
-app.use((error: { status?: number; code?: string; message?: string }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((error: { status?: number; code?: string; message?: string }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const safeMessages:Record<string,string>={'Attachment quota reached':'Your workspace has reached its image limit (100 images or 50 MB).','Revision limit reached':'This document has reached 100 revisions. Archive it and start a new document.','Process a draft before review':'Wait for draft processing to finish before submitting for review.','Ready review required':'Submit a processed draft for review before publishing.','Concept is not current':'Update the OKF lifecycle or stale date before publishing.','Version unavailable':'That source revision is unavailable.'};
   const status = error.code === 'P0002' ? 429 : error.code === 'P0001' ? 429 : error.code === '23505' || error.code === '23514' ? 409 : error.code === '42501' ? 403 : error.code === '40001' ? 409 : error.code === '22023' || error.code === '22P02' ? 400 : error.status || 500;
+  if (status >= 500) console.error(JSON.stringify({ event: 'request_error', requestId: res.getHeader('X-Request-ID'), method: req.method, path: req.path, status, code: error.code, message: error.message?.slice(0, 200) }));
   res.status(status).json({ error: error.code==='22023'&&safeMessages[error.message??'']?safeMessages[error.message!]:status === 429 ? (error.code==='P0002'?'Your workspace has reached the 50-document limit. Remove a document before uploading another.':'Conversation storage limit reached. Contact your administrator.') : status === 409 ? 'This record changed or conflicts with existing data. Refresh and try again.' : status === 403 ? 'Access denied.' : status === 413 ? 'Request too large.' : 'Request failed.' });
 });

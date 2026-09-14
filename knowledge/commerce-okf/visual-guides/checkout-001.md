@@ -25,6 +25,9 @@ commerce_record:
     - multiple products
     - custom product
     - add to cart
+  tutorials:
+    - title: Create and share an Instant Checkout link
+      url: https://www.youtube.com/watch?v=FqyB81niqsQ&list=PLMN1y8VZcPd8
   screenshots:
     - src: image21.jpg
       caption: Choose Instant Checkout from the header, product card, or chat.

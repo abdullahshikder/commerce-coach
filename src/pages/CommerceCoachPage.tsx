@@ -4,21 +4,21 @@ import { EmptyState } from '../components/EmptyState';
 import { useConversationHistory } from '../coach/useConversationHistory';
 import { useAuth } from '../auth/AuthContext';
 import { screenshotUrl } from '../coach/screenshotAssets';
+import { getScreenshotTutorials } from '../coach/screenshots/manifest';
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent, type ReactNode } from 'react';
 import { getThemeColor } from '../utils/themeColors';
-import { generationError, processMessageLLM, getWelcomeMessage, getQuickActions, isGeminiAvailable, isOpenRouterAvailable, ChatMessage, ConversationState } from '../coach/responseEngine';
+import { generationError, processMessageLLM, getWelcomeMessage, getQuickActions, ChatMessage, ConversationState } from '../coach/responseEngine';
 import { isGeminiAvailable as isGeminiConfig } from '../coach/geminiService';
 import { isOpenRouterAvailable as isOpenRouterConfig } from '../coach/openrouterService';
 import { renderMarkdown } from '../coach/MarkdownRenderer';
 import { ResponseFeedback } from '../coach/ResponseFeedback';
 import { CoachFeedbackReviewPanel } from '../coach/CoachFeedbackReviewPanel';
 import { findFeedbackQuery } from '../coach/feedback';
-import { IntentBadge } from '../coach/IntentBadge';
 import {
-  Bot, Send, RotateCcw, BookOpen, Sparkles, AlertTriangle,
-  ChevronRight, ChevronLeft, MessageSquare, Zap, BarChart3, Package,
-  ShoppingCart, Store, Users, FileText, Truck, Lightbulb,
-  Copy, Check, ImageIcon, ExternalLink, Loader2, X, BrainCircuit, PanelLeft, Plus, Search, ArrowUpRight, ArrowUp, CornerDownLeft, PanelLeftClose, Warehouse, CircleHelp
+  BookOpen, Sparkles, AlertTriangle, ChevronRight, ChevronLeft,
+  MessageSquare, ShoppingCart, Store, Copy, Check, ImageIcon,
+  Loader2, X, BrainCircuit, PanelLeft, Plus, Search, ArrowUpRight,
+  ArrowUp, PanelLeftClose, Warehouse, CircleHelp,
 } from 'lucide-react';
 
 function uid(): string {
@@ -33,15 +33,6 @@ const SIDEBAR_ITEMS = [
   { id: 'learning', label: 'Learning', icon: BrainCircuit, desc: 'Review corrections' },
 ];
 
-const FEATURE_CARDS = [
-  { icon: Package, label: 'Products', prompt: 'How do I create and manage products?', color: 'bg-blue-50 text-blue-600 border-blue-100' },
-  { icon: ShoppingCart, label: 'Orders', prompt: 'How does order processing work?', color: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
-  { icon: Store, label: 'Online Store', prompt: 'How do I set up my online store?', color: 'bg-red-50 text-red-600 border-red-100' },
-  { icon: Truck, label: 'Delivery', prompt: 'How does delivery and fulfillment work?', color: 'bg-amber-50 text-amber-600 border-amber-100' },
-  { icon: BarChart3, label: 'Analytics', prompt: 'How do I view my analytics and reports?', color: 'bg-rose-50 text-rose-600 border-rose-100' },
-  { icon: Zap, label: 'Instant Checkout', prompt: 'How do I create instant checkout links?', color: 'bg-orange-50 text-orange-600 border-orange-100' },
-];
-
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
@@ -50,8 +41,9 @@ function CopyButton({ text }: { text: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <button onClick={handleCopy} className="p-1 rounded hover:bg-gray-100 transition-colors cursor-pointer" title="Copy">
+    <button onClick={handleCopy} className="answer-copy-button" title="Copy answer">
       {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} className="text-gray-400" />}
+      <span>{copied ? 'Copied' : 'Copy answer'}</span>
     </button>
   );
 }
@@ -70,21 +62,61 @@ function TypingIndicator() {
   );
 }
 
+type AnswerBlock = { type: 'prose' | 'steps' | 'bullets'; items: string[] };
+
+function structureAnswer(content: string): AnswerBlock[] {
+  const blocks: AnswerBlock[] = [];
+  let current: AnswerBlock | null = null;
+  const push = (type: AnswerBlock['type'], value: string) => {
+    if (!current || current.type !== type) {
+      current = { type, items: [] };
+      blocks.push(current);
+    }
+    current.items.push(value);
+  };
+
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) { current = null; continue; }
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    const bullet = line.match(/^[•*-]\s+(.+)$/);
+    if (numbered) push('steps', numbered[1]);
+    else if (bullet) push('bullets', bullet[1]);
+    else push('prose', line);
+  }
+  return blocks;
+}
+
+function StructuredAnswer({ content }: { content: string }) {
+  const blocks = structureAnswer(content);
+  let stepsSeen = false;
+  return <div className="structured-answer">{blocks.map((block, blockIndex) => {
+    if (block.type === 'steps') {
+      stepsSeen = true;
+      return <ol className="answer-steps" key={`steps-${blockIndex}`}>{block.items.map((item, index) => <li key={`${index}-${item}`}><span>{index + 1}</span><div>{renderMarkdown(item)}</div></li>)}</ol>;
+    }
+    if (block.type === 'bullets') {
+      return <ul className="answer-bullets" key={`bullets-${blockIndex}`}>{block.items.map((item, index) => <li key={`${index}-${item}`}><span aria-hidden="true"/><div>{renderMarkdown(item)}</div></li>)}</ul>;
+    }
+    // How-to answers often close with the expected result or timing after the actionable steps.
+    const isOutcome = stepsSeen && blockIndex === blocks.length - 1;
+    return <div className={isOutcome ? 'answer-outcome' : 'answer-prose'} key={`prose-${blockIndex}`}>{renderMarkdown(block.items.join('\n'))}</div>;
+  })}</div>;
+}
+
 function WelcomeScreen({ onSend, composer, name }: { onSend: (text: string) => void; composer: ReactNode; name:string }) {
   return <div className="coach-home">
-    <div className="home-heading"><p>Hello, {name.split(' ')[0]}.</p><h1>What would you like<br/>to do today?</h1><span>Get help with orders, warehouses, and your store.</span></div>
+    <div className="home-heading"><p>Hello, {name.split(' ')[0]}.</p><h1>How can I help?</h1><span>Ask one question about Pathao Commerce.</span></div>
     {composer}
     <div className="home-prompt-list" aria-label="Suggested questions">
       <button onClick={()=>onSend('ওয়্যারহাউস কীভাবে তৈরি করব?')}><Warehouse size={17}/><span>ওয়্যারহাউস কীভাবে তৈরি করব?</span><ArrowUpRight size={16}/></button>
       <button onClick={()=>onSend('Where is my Instant Checkout order? It is not in New Orders.')}><ShoppingCart size={17}/><span>Where did my Instant Checkout order go?</span><ArrowUpRight size={16}/></button>
       <button onClick={()=>onSend('How do I create an ad catalogue for Meta Ads?')}><Store size={17}/><span>Help me create a catalogue for Meta Ads</span><ArrowUpRight size={16}/></button>
     </div>
-    <div className="home-resources"><div className="resource-heading"><h2>A good place to start</h2><span>From the Commerce playbook</span></div>
-      <div className="resource-grid"><button className="resource-feature" onClick={()=>onSend('ওয়্যারহাউস কীভাবে তৈরি করব?')}>
-        <div className="resource-preview"><img src={screenshotUrl('image96.jpg')} alt="Warehouse setup form in Pathao Commerce"/></div>
-        <div><span className="resource-kind">Visual guide</span><h3>Your first warehouse</h3><p>Set up your location, contact details, and approval.</p><span className="resource-link">Open guide <ArrowUpRight size={15}/></span></div>
-      </button><div className="resource-lessons"><button onClick={()=>onSend('Train me on Commerce basics')}><BookOpen size={20}/><div><h3>Get to know Commerce</h3><p>A guided lesson, at your pace.</p></div><ArrowUpRight size={16}/></button><button onClick={()=>onSend('Quiz me on Commerce')}><CircleHelp size={20}/><div><h3>Put your knowledge to work</h3><p>Practice with real merchant scenarios.</p></div><ArrowUpRight size={16}/></button></div></div>
-    </div>
+    <details className="home-learn-more"><summary><span>More ways to learn</span><ChevronRight size={15}/></summary><div>
+      <button onClick={()=>onSend('Train me on Commerce basics')}><BookOpen size={18}/><span><strong>Guided lesson</strong><small>Learn Commerce step by step.</small></span></button>
+      <button onClick={()=>onSend('Quiz me on Commerce')}><CircleHelp size={18}/><span><strong>Practice quiz</strong><small>Check what you know.</small></span></button>
+    </div></details>
   </div>;
 }
 
@@ -123,6 +155,7 @@ function MessageBubble(props: { message: ChatMessage; themeColor: string; query?
   const hasSource = message.metadata?.source;
   const hasFeature = message.metadata?.feature;
   const screenshots = message.metadata?.screenshots ?? [];
+  const tutorialLinks = getScreenshotTutorials(screenshots);
   const previewImages = screenshots.map((screenshot) => ({
     src: screenshotUrl(screenshot.src),
     caption: screenshot.caption,
@@ -133,47 +166,23 @@ function MessageBubble(props: { message: ChatMessage; themeColor: string; query?
       <div className="w-8 h-8 rounded-xl bg-[#e83330] flex items-center justify-center shrink-0 shadow-md">
         <span className="coach-avatar-letter">C</span>
       </div>
-      <div className="max-w-[88%] xl:max-w-[80%] space-y-2">
-        <div className="answer-heading"><span>Commerce Coach</span>{hasFeature&&<h2>{message.metadata!.feature}</h2>}</div>
+      <div className="answer-card">
+        <p className="answer-label">Answer</p>
+        {hasFeature&&<div className="answer-heading"><h2>{message.metadata!.feature}</h2></div>}
         {/* Main content */}
         <div className="answer-surface">
-          <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none prose-headings:font-bold prose-headings:text-gray-900 prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-strong:text-gray-900 prose-a:text-red-600 prose-a:no-underline hover:prose-a:underline">
-            {renderMarkdown(message.content)}
-          </div>
-          <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-50">
-            <div className="flex items-center gap-3 text-[10px] text-gray-400">
-              {hasSource && (
-                <span className="flex items-center gap-1">
-                  <FileText size={10} />
-                  {message.metadata!.source}
-                </span>
-              )}
-              {message.metadata?.confidence==='low'&&<span className="answer-caution">Needs confirmation</span>}
-
-            </div>
-            <div className="flex items-center gap-1">
-              <ResponseExport message={message} /><ResponseFeedback message={message} query={query} />
-              <CopyButton text={message.content} />
-              <span className="text-[10px] text-gray-400 ml-1">
-                {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-          </div>
+          <StructuredAnswer content={message.content}/>
         </div>
 
         {/* Screenshots */}
         {hasScreenshots && (
-          <section className="answer-gallery" aria-label="Product Memo screenshots">
-            <div className="mb-3 flex items-center justify-between gap-3 px-1">
-              <div className="flex items-center gap-2 text-xs font-semibold text-gray-800">
-                <ImageIcon size={14} className="text-red-600" />
-                Visual guide
-              </div>
-              <span className="text-[10px] text-gray-500">
-                {screenshots.length} {screenshots.length === 1 ? 'screen' : 'screens'} from Product Memo
-              </span>
+          <section className="answer-gallery" aria-label="Visual guide">
+            <div className="answer-gallery-heading">
+              <span><ImageIcon size={15}/>Visual guide</span>
+              <small>{screenshots.length} {screenshots.length === 1 ? 'step' : 'steps'}</small>
             </div>
-            <div className="flex snap-x snap-proximity gap-3 overflow-x-auto pb-2">
+            <div className="answer-gallery-content">
+              <div className="flex snap-x snap-proximity gap-3 overflow-x-auto pb-2">
               {screenshots.map((screenshot, idx) => (
                 <button
                   key={screenshot.src}
@@ -201,9 +210,21 @@ function MessageBubble(props: { message: ChatMessage; themeColor: string; query?
                   </div>
                 </button>
               ))}
+              </div>
+              {tutorialLinks.length > 0 && <div className="answer-tutorials">{tutorialLinks.map((link) => <p key={link.url}><span>{link.title}</span><a href={link.url} target="_blank" rel="noopener noreferrer">{link.url}<ArrowUpRight size={12}/></a></p>)}</div>}
             </div>
           </section>
         )}
+        <div className="answer-actions">
+          <CopyButton text={message.content} />
+          <div className="answer-export-controls"><ResponseExport message={message}/></div>
+          <div className="answer-feedback-controls"><ResponseFeedback message={message} query={query}/></div>
+          {(hasSource || message.metadata?.confidence==='low') && <div className="answer-provenance">
+            {hasSource&&<span>{message.metadata!.source}</span>}
+            {message.metadata?.confidence==='low'&&<span className="answer-caution">Needs confirmation</span>}
+          </div>}
+          <time>{message.timestamp.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</time>
+        </div>
       </div>
     </div>
   );
@@ -220,6 +241,9 @@ export default function CommerceCoachPage({ screenContext }: { screenContext?: S
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [sidebarOpen,setSidebarOpen]=useState(false);
+  const [sidebarCollapsed,setSidebarCollapsed]=useState(false);
+  const [historyExpanded,setHistoryExpanded]=useState(true);
+  const [historyLimit,setHistoryLimit]=useState(8);
   const [historySearch,setHistorySearch]=useState('');
   useEffect(()=>{const close=(event:globalThis.KeyboardEvent)=>{if(event.key==='Escape')setSidebarOpen(false);};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[]);
   const [activeSection, setActiveSection] = useState('chat');
@@ -317,20 +341,23 @@ export default function CommerceCoachPage({ screenContext }: { screenContext?: S
   const composer = <div className={`conversation-composer ${showWelcome?'home-composer':''}`}>
     <label className="sr-only" htmlFor="coach-message">Message Commerce Coach</label>
     <div className="composer-field"><textarea id="coach-message" ref={inputRef} value={inputValue} onChange={event=>setInputValue(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();void handleSend();}}}
-      aria-label="Message Commerce Coach" placeholder={isTyping?'Preparing your answer…':'What would you like to figure out?'} disabled={isTyping} rows={showWelcome?3:2}/>
-      <div className="composer-bottom"><span><MessageSquare size={14}/>বাংলা or English</span><div><span className="send-hint"><CornerDownLeft size={12}/> to send</span><button aria-label="Send message" disabled={!inputValue.trim()||isTyping||history.loading||history.unsaved||history.status==='Saving…'||messages.length>=199} onClick={()=>void handleSend()}><ArrowUp size={20}/></button></div></div>
-    </div>{!showWelcome&&<p>Answers reference Commerce documentation. Verify details before making changes.</p>}
+      aria-label="Message Commerce Coach" placeholder={isTyping?'Preparing your answer…':'What would you like to figure out?'} disabled={isTyping} rows={showWelcome?3:1}/>
+      <div className="composer-bottom"><span><MessageSquare size={14}/>বাংলা or English</span><div><button aria-label="Send message" disabled={!inputValue.trim()||isTyping||history.loading||history.unsaved||history.status==='Saving…'||messages.length>=199} onClick={()=>void handleSend()}><ArrowUp size={20}/></button></div></div>
+    </div>
   </div>;
+
+  const filteredHistory=history.items.filter(item=>item.title.toLowerCase().includes(historySearch.toLowerCase()));
+  const visibleHistory=filteredHistory.slice(0,historyLimit);
 
 
   return (
     <div className="coach-layout">
       {/* Sidebar */}
-      <div className={`coach-sidebar ${sidebarOpen?'is-open':''}`} id="coach-sidebar">
+      <aside className={`coach-sidebar ${sidebarOpen?'is-open':''} ${sidebarCollapsed?'is-collapsed':''}`} id="coach-sidebar">
         <div className="sidebar-heading"><div className="sidebar-workspace"><span>{user.organization_name.slice(0,1)}</span><div><strong>{user.organization_name}</strong><small>Commerce workspace</small></div></div>
           {/* AI Provider Selector */}
           {(geminiConfigured || openRouterConfigured) && (
-            <div className="px-3 mt-3">
+            <details className="provider-settings"><summary>{aiProvider === 'openrouter' ? 'OpenRouter' : 'Gemini'}<ChevronRight size={13}/></summary>
               <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                 <button
                   onClick={() => setAiProvider('openrouter')}
@@ -359,7 +386,7 @@ export default function CommerceCoachPage({ screenContext }: { screenContext?: S
                   Gemini
                 </button>
               </div>
-            </div>
+            </details>
           )}
         </div>
 
@@ -380,7 +407,7 @@ export default function CommerceCoachPage({ screenContext }: { screenContext?: S
                 disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'}
                 aria-current={isActive?'page':undefined}
                 className={`mode-button ${isActive?'is-active':''}`}
-
+                title={item.label}
               >
                 <Icon size={16} className={isActive ? 'text-red-500' : ''} />
                 <div>
@@ -392,14 +419,15 @@ export default function CommerceCoachPage({ screenContext }: { screenContext?: S
           })}
         </nav>
 
-        <div className="sidebar-history"><div className="history-heading"><h2>Recent conversations</h2></div>
-          <label className="history-search"><Search size={14}/><input aria-label="Search conversations" placeholder="Find a conversation" value={historySearch} onChange={event=>setHistorySearch(event.target.value)}/></label>
-          <div className="history-list">{history.items.filter(item=>item.title.toLowerCase().includes(historySearch.toLowerCase())).map(item=><button key={item.id} className={history.id===item.id?'is-active':''} aria-current={history.id===item.id?'true':undefined} disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'} onClick={()=>{void history.open(item.id);setActiveSection('chat');setSidebarOpen(false);}}><span>{item.title}</span><small>{new Date(item.updated_at).toLocaleDateString(undefined,{month:'short',day:'numeric'})} · {new Date(item.updated_at).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</small></button>)}
+        <div className={`sidebar-history ${historyExpanded?'is-expanded':''}`}><button className="history-heading" onClick={()=>setHistoryExpanded(value=>!value)} aria-expanded={historyExpanded}><h2>Recent chats</h2><ChevronRight size={14}/></button>
+          {historyExpanded&&<label className="history-search"><Search size={14}/><input aria-label="Search conversations" placeholder="Find a conversation" value={historySearch} onChange={event=>setHistorySearch(event.target.value)}/></label>}
+          {historyExpanded&&<div className="history-list">{visibleHistory.map(item=><button key={item.id} className={history.id===item.id?'is-active':''} aria-current={history.id===item.id?'true':undefined} disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'} onClick={()=>{void history.open(item.id);setActiveSection('chat');setSidebarOpen(false);}}><span>{item.title}</span><small>{new Date(item.updated_at).toLocaleDateString(undefined,{month:'short',day:'numeric'})} · {new Date(item.updated_at).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}</small></button>)}
           {history.loading&&!history.items.length&&<p role="status">Loading conversations…</p>}
           {!history.loading&&!history.items.length&&history.error&&<EmptyState compact title="History is unavailable" description="Your saved conversations couldn’t be loaded." action={<button type="button" onClick={()=>void history.reload()}>Try again</button>}/>}
           {!history.loading&&!history.error&&!history.items.length&&<EmptyState compact title="No conversations yet" description="Ask your first question. Your conversation will be saved here."/>}
-          {!history.loading&&history.items.length>0&&!history.items.some(item=>item.title.toLowerCase().includes(historySearch.toLowerCase()))&&<EmptyState compact title="No matching conversations" description={history.hasMore?'Try a different word, or load older conversations below.':'Try a different word from the conversation title.'} action={<button type="button" onClick={()=>setHistorySearch('')}>Clear search</button>}/>}
-          {history.hasMore&&<button onClick={()=>void history.loadMore().catch(()=>{})}>Load older conversations</button>}</div>
+          {!history.loading&&history.items.length>0&&!filteredHistory.length&&<EmptyState compact title="No matching conversations" description={history.hasMore?'Try a different word, or load older conversations below.':'Try a different word from the conversation title.'} action={<button type="button" onClick={()=>setHistorySearch('')}>Clear search</button>}/>}
+          {visibleHistory.length<filteredHistory.length&&<button onClick={()=>setHistoryLimit(limit=>limit+8)}>Show more conversations</button>}
+          {history.hasMore&&visibleHistory.length>=filteredHistory.length&&<button onClick={()=>void history.loadMore().catch(()=>{})}>Load older conversations</button>}</div>}
         </div>
         {/* Score badge */}
         {conversationState.quizScore.total > 0 && (
@@ -416,23 +444,20 @@ export default function CommerceCoachPage({ screenContext }: { screenContext?: S
 
         <div className="sidebar-footer"><BookOpen size={15}/><span>{openRouterConfigured||geminiConfigured?'AI + Commerce documentation':'AI connection required'}</span></div>
 
-      </div>
+      </aside>
 
       {/* Chat Area */}
       <div className="coach-main">
         <div className="conversation-toolbar">
-          <button className="mobile-sidebar-toggle" aria-label="Toggle navigation" aria-expanded={sidebarOpen} aria-controls="coach-sidebar" onClick={()=>setSidebarOpen(!sidebarOpen)}><PanelLeft size={19}/></button>
-          <div className="conversation-title"><strong>{activeSection==='learning'?'Review corrections':history.items.find(item=>item.id===history.id)?.title || 'Chat'}</strong><span>{activeSection==='learning'?'Reported answers':modeLabel || (showWelcome?'Your commerce assistant':'Private conversation')}</span></div>
+          <button className="mobile-sidebar-toggle" aria-label={sidebarCollapsed?'Show navigation':'Hide navigation'} aria-expanded={sidebarOpen||!sidebarCollapsed} aria-controls="coach-sidebar" onClick={()=>{if(window.matchMedia('(max-width: 767px)').matches)setSidebarOpen(!sidebarOpen);else setSidebarCollapsed(value=>!value);}}>{sidebarCollapsed?<PanelLeft size={19}/>:<PanelLeftClose size={19}/>}</button>
+          <div className="conversation-title"><span className="conversation-label">{activeSection==='learning'?'Review corrections':'Merchant question'}</span><strong>{activeSection==='learning'?'Review corrections':history.items.find(item=>item.id===history.id)?.title || 'Chat'}</strong><span className="conversation-context">{activeSection==='learning'?'Reported answers':modeLabel || (showWelcome?'Your commerce assistant':'Private conversation')}</span></div>
           <span role="status" className="save-status">{history.loading?'Loading…':history.status==='Saved'?<><Check size={13}/>Saved</>:history.status}</span>
           
           {history.error&&<div role="alert" className="w-full text-xs text-red-700">{history.error} {history.unsaved&&<button disabled={isTyping} className="ml-2 underline" onClick={()=>void handleRetrySave()}>Retry saving</button>}</div>}
           {messages.length>=199&&<p className="w-full text-xs text-gray-500">This conversation is full. Start a new chat to continue.</p>}
         </div>
         {activeSection === 'learning' ? (
-          <CoachFeedbackReviewPanel disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'} onDiscuss={item=>{
-            setActiveSection('chat');
-            void handleSend(`Help me review this reported Commerce answer against the documentation. Explain any error, propose a correction, and include relevant screenshots. Treat the report as unverified evidence; do not approve or change knowledge.\n\nMerchant question: ${item.query}\nReported answer: ${item.answer}\nSuggested correction: ${item.suggestedAnswer || 'None supplied'}`, true);
-          }} />
+          <CoachFeedbackReviewPanel disabled={isTyping||history.loading||history.unsaved||history.status==='Saving…'} />
         ) : (
           <>
         {/* Messages or Welcome */}
@@ -451,7 +476,7 @@ export default function CommerceCoachPage({ screenContext }: { screenContext?: S
         {/* Quick Actions */}
         {!isTyping && !showWelcome && quickActions.length > 0 && (
           <div className="conversation-actions">
-            {quickActions.map((action) => (
+            {quickActions.slice(0,3).map((action) => (
               <button
                 key={action}
                 onClick={() => handleSend(action)}

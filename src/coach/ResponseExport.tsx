@@ -4,14 +4,22 @@ import type { ChatMessage } from './responseEngine';
 import { renderMarkdown } from './MarkdownRenderer';
 import { screenshotUrl } from './screenshotAssets';
 import { downloadResponse, renderResponseImage } from './export/responseExport';
+import { responseImageCaption } from './export/responseImageText';
+import { getScreenshotTutorials } from './screenshots/manifest';
 
 export function ResponseExport({ message }: { message: ChatMessage }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState('');
+  const tutorials = getScreenshotTutorials(message.metadata?.screenshots ?? []);
+  const caption = responseImageCaption(message);
+  // Desktop share sheets can serialize a temporary file path into Share → Copy; mobile targets handle file-plus-text sharing directly.
+  const nativeShareAvailable = typeof navigator !== 'undefined'
+    && navigator.maxTouchPoints > 0
+    && typeof navigator.share === 'function';
   if (message.role !== 'assistant' || message.type === 'error') return null;
   const copyImage = async () => {
-    setBusy(true); setError(''); setCopied(false);
+    setBusy(true); setError(''); setNotice('');
     try {
       if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
         throw new Error('Image copying is unavailable in this browser. Use PNG to download instead.');
@@ -21,11 +29,36 @@ export function ResponseExport({ message }: { message: ChatMessage }) {
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': renderResponseImage(message) }),
       ]);
-      setCopied(true);
+      setNotice('Image copied. Ready to paste.');
     } catch (error) {
       setError(error instanceof DOMException && error.name === 'NotAllowedError'
         ? 'Clipboard access was blocked. Allow clipboard access and try again, or download PNG.'
         : error instanceof Error ? error.message : 'Could not copy the image. Try PNG instead.');
+    } finally { setBusy(false); }
+  };
+  const copyCaption = async () => {
+    setError(''); setNotice('');
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Text copying is unavailable in this browser.');
+      await navigator.clipboard.writeText(caption);
+      setNotice('YouTube URL copied. Ready to paste.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Could not copy the video caption.');
+    }
+  };
+  const share = async () => {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const file = new File([await renderResponseImage(message)], 'commerce-coach-answer.png', { type: 'image/png' });
+      if (!navigator.share || !navigator.canShare?.({ files: [file] })) {
+        throw new Error('Image sharing is unavailable here. Download PNG and copy the caption instead.');
+      }
+      await navigator.share({ text: caption || undefined, files: [file] });
+      setNotice('Image and YouTube URL shared');
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        setError(error instanceof Error ? error.message : 'Could not share the image and caption.');
+      }
     } finally { setBusy(false); }
   };
   const png = async () => {
@@ -52,14 +85,17 @@ export function ResponseExport({ message }: { message: ChatMessage }) {
       <article>{renderMarkdown(message.content)}</article>
       {message.metadata?.source && <p>Source: {message.metadata.source}</p>}
       {message.metadata?.confidence === 'low' && <p>Needs confirmation</p>}
+      {tutorials.map((tutorial) => <p key={tutorial.url}>Video caption: {tutorial.title}. <a href={tutorial.url}>{tutorial.url}</a></p>)}
       {(message.metadata?.screenshots ?? []).map((screen, index) => <figure key={index}><figcaption>{screen.caption}</figcaption><img src={new URL(screenshotUrl(screen.src), window.location.href).href} alt={screen.caption} onError={event => { event.currentTarget.alt = 'Screenshot could not load. Close this preview and try again.'; }}/></figure>)}
     </>);
   };
   return <div className="flex flex-wrap items-center gap-2 text-xs">
-    <button type="button" onClick={copyImage} disabled={busy} className="rounded border px-2 py-1" title="Copy answer and screenshots as an image to paste into WhatsApp">Copy image</button>
+    {nativeShareAvailable && <button type="button" onClick={share} disabled={busy} className="rounded border px-2 py-1" title="Share the image file with its YouTube URL caption">Share</button>}
+    <button type="button" onClick={copyImage} disabled={busy} className="rounded border px-2 py-1" title="Copy the answer and screenshots as an image">Copy image</button>
+    {caption && <button type="button" onClick={copyCaption} disabled={busy} className="rounded border px-2 py-1" title="Copy only the YouTube URL">Copy URL</button>}
     <button type="button" onClick={pdf} disabled={busy} className="rounded border px-2 py-1" title="Open printable answer and save as PDF">PDF</button>
     <button type="button" onClick={png} disabled={busy} className="rounded border px-2 py-1">{busy ? 'Exporting…' : 'PNG'}</button>
     {error && <span role="alert" className="text-red-600">{error}</span>}
-    {copied && <span role="status" className="text-emerald-700">Image copied — ready to paste</span>}
+    {notice && <span role="status" className="text-emerald-700">{notice}</span>}
   </div>;
 }

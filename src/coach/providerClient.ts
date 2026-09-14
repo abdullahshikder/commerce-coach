@@ -13,7 +13,7 @@ export async function loadProviders() {
 export async function generate(provider: 'openrouter' | 'gemini', messages: ChatMessage[], state: ConversationState, retrievalContext?: string, screenContext?: ScreenContext, retrievalDocumentIds: string[] = []): Promise<ClientGenerationResponse> {
   const response = await authFetch('/api/coach/generate', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, messages: messages.slice(-30), state, retrievalContext, screenContext, retrievalDocumentIds }),
+    body: JSON.stringify({ provider, messages: messages.slice(-12), state, retrievalContext, screenContext, retrievalDocumentIds }),
     signal: AbortSignal.timeout(120000),
   });
   if (!response.ok) throw new Error('AI generation is unavailable.');

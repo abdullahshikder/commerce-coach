@@ -23,6 +23,9 @@ commerce_record:
     - store import
     - warehouse address
     - account linking
+  tutorials:
+    - title: Sign up for Pathao Commerce
+      url: https://www.youtube.com/watch?v=weYyy08MafM&list=PLMN1y8VZcPd8
   screenshots:
     - src: image92.jpg
       caption: Sign up or log in with a Pathao Courier account.

@@ -23,6 +23,9 @@ commerce_record:
     - fetch products
     - category mapping
     - validation
+  tutorials:
+    - title: Connect Daraz and import products
+      url: https://www.youtube.com/watch?v=lngsxYOaWDY&list=PLMN1y8VZcPd8
   screenshots:
     - src: image112.jpg
       caption: Start a Daraz import when the account is not connected.

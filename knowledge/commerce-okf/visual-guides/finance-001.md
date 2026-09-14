@@ -25,6 +25,9 @@ commerce_record:
     - invoice
     - download invoice
     - report issue
+  tutorials:
+    - title: Manage payments, payouts, and invoices
+      url: https://www.youtube.com/watch?v=VtY7tRxHQwk&list=PLMN1y8VZcPd8
   screenshots:
     - src: image3.png
       caption: Open payout methods from Finance settings.

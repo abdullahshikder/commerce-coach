@@ -67,11 +67,12 @@ export async function reviewCoachFeedback(
   id: string,
   status: 'approved' | 'dismissed',
   reviewNote?: string,
+  suggestedAnswer?: string,
 ): Promise<CoachFeedbackRecord> {
   const response = await authFetch(`/api/coach/feedback/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status, ...(reviewNote?.trim() ? { reviewNote: reviewNote.trim() } : {}) }),
+    body: JSON.stringify({ status, ...(reviewNote?.trim() ? { reviewNote: reviewNote.trim() } : {}), ...(suggestedAnswer?.trim() ? { suggestedAnswer: suggestedAnswer.trim() } : {}) }),
   });
   if (!response.ok) throw new Error('Could not update this Coach feedback item.');
   const body = await response.json() as { feedback: CoachFeedbackRecord };

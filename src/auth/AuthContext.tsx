@@ -22,20 +22,18 @@ export function PasswordForm({ done }: { done: () => void }) {
 }
 export function AuthProvider({children}:{children:ReactNode}) {
   const [user,setUser]=useState<User|null>(null);const [loading,setLoading]=useState(true);const [error,setError]=useState('');const [busy,setBusy]=useState(false);
-  const [organization,setOrganization]=useState('');
   const [googleEnabled,setGoogleEnabled]=useState(false);
   useEffect(()=>{
     void api<{enabled:boolean}>('/api/auth/google/config').then(config=>setGoogleEnabled(config.enabled)).catch(()=>{});
     const url=new URL(window.location.href);const reason=url.searchParams.get('google_error');
     if(reason){
-      const messages:Record<string,string>={account:'Your Google account has no linked access to this organization. Contact your admin or sign in with your password.',expired:'Google sign-in expired. Please try again.',cancelled:'Google sign-in was cancelled.',unavailable:'Google sign-in is not configured.',busy:'Sign-in is busy. Please try again.',failed:'Google sign-in could not be verified. Please try again.'};
+      const messages:Record<string,string>={account:'Your Google account has no linked access to this workspace. Contact your admin or sign in with your password.',expired:'Google sign-in expired. Please try again.',cancelled:'Google sign-in was cancelled.',unavailable:'Google sign-in is not configured.',busy:'Sign-in is busy. Please try again.',failed:'Google sign-in could not be verified. Please try again.'};
       setError(messages[reason] || messages.failed);url.searchParams.delete('google_error');window.history.replaceState(null,'',url);
     }
   },[]);
   const googleSignIn=async()=>{
-    if(!/^[a-z0-9-]{2,80}$/.test(organization.trim().toLowerCase())){setError('Enter your organization before continuing with Google.');return;}
     setBusy(true);setError('');
-    try{const {url}=await api<{url:string}>('/api/auth/google/start',{organization});window.location.assign(url);}
+    try{const {url}=await api<{url:string}>('/api/auth/google/start',{});window.location.assign(url);}
     catch(e){setError((e as Error).message);setBusy(false);}
   };
   const clear=()=>{setUser(null);setCsrfToken('');};
@@ -43,7 +41,7 @@ export function AuthProvider({children}:{children:ReactNode}) {
     try {
       const response=await authFetch('/api/auth/me');
       if(response.status===401) {clear();return;}
-      if(!response.ok) throw new Error('The server is unavailable. Please try again.');
+      if(!response.ok) {clear();throw new Error('The server is unavailable. Please sign in again.');}
       const {user:next}=await response.json();setCsrfToken(next.csrf_token);
       if(!next.must_change_password) await loadProviders();
       setUser(next);setError('');
@@ -61,10 +59,9 @@ export function AuthProvider({children}:{children:ReactNode}) {
   if(user?.must_change_password)return <div className="grid min-h-dvh place-items-center bg-gray-50 p-6"><div><p className="mb-4 text-center text-sm text-gray-600">Welcome, {user.name}. Set your own password to continue.</p><PasswordForm done={clear}/><button className="mt-4 text-sm text-red-700" onClick={()=>void logout().catch(e=>setError(e.message))}>Sign out</button>{error&&<p role="alert">{error}</p>}</div></div>;
   if(!user)return <div className="signin-layout"><aside className="signin-story"><div className="signin-wordmark">Commerce Coach</div><div><p>The Commerce playbook</p><h2>Know what to do next.</h2><span>Practical answers and step-by-step guides for running your store.</span></div><small>Made for your team. Ready for বাংলা and English.</small></aside><div className="signin-form-area"><form className="signin-form space-y-4" onSubmit={async event=>{
     event.preventDefault();const data=new FormData(event.currentTarget);setBusy(true);setError('');
-    try{await api('/api/auth/login',{organization:data.get('organization'),email:data.get('email'),password:data.get('password')});await refresh();}
+    try{await api('/api/auth/login',{email:data.get('email'),password:data.get('password')});await refresh();}
     catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }}><div><div className="mb-2 text-sm font-semibold text-red-600">Commerce Coach</div><h1 className="text-2xl font-bold">Sign in to your workspace</h1><p className="mt-2 text-sm text-gray-500">Use the account provided by your organization’s admin.</p></div>
-    <label className="block text-sm">Organization<input required name="organization" value={organization} onChange={event=>setOrganization(event.target.value)} autoComplete="organization" placeholder="pathao" className="mt-1 w-full rounded-lg border p-2.5" /></label>
     <button type="button" disabled={busy||!googleEnabled} onClick={()=>void googleSignIn()} className="w-full rounded-lg border border-gray-300 bg-white p-2.5 font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-50">Continue with Google</button>
     {!googleEnabled&&<p className="text-xs text-gray-500">Google sign-in hasn’t been enabled by your administrator yet.</p>}
     <div className="text-center text-xs text-gray-400">or sign in with your password</div>

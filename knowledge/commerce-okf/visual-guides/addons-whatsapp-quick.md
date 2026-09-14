@@ -27,6 +27,9 @@ commerce_record:
     - phone number
     - qr code
     - timezone
+  tutorials:
+    - title: Connect WhatsApp
+      url: https://www.youtube.com/watch?v=zUYW9WlcDtQ&list=PLMN1y8VZcPd8
   screenshots:
     - src: image64.png
       caption: Start Quick Connect with a WhatsApp Business Account.

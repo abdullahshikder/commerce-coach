@@ -7,9 +7,11 @@ import {
   SCREENSHOT_REGISTRY,
   buildScreenshotSearchQuery,
   getScreenshots,
+  getScreenshotTutorials,
   searchScreenshots,
   selectResponseScreenshots,
 } from './manifest';
+import { TUTORIAL_VIDEO_ITEMS } from '../tutorialVideos';
 
 const memoImagesDirectory = fileURLToPath(
   new URL('./', import.meta.url),
@@ -35,6 +37,30 @@ test('keeps the corrected memo sequence for previously omitted images', () => {
   );
   assert.equal(getScreenshots('delivery-001').at(-1)?.src, 'image42.jpg');
   assert.equal(getScreenshots('delivery-003').at(-1)?.src, 'image29.jpg');
+});
+
+test('carries the official tutorial link with related screenshots and removes duplicates', () => {
+  const links = getScreenshotTutorials([
+    ...getScreenshots('signup-001').slice(0, 2),
+    ...getScreenshots('signup-002').slice(0, 1),
+  ]);
+
+  assert.deepEqual(links, [{
+    title: 'Sign up for Pathao Commerce',
+    url: 'https://www.youtube.com/watch?v=weYyy08MafM&list=PLMN1y8VZcPd8',
+  }]);
+  assert.deepEqual(getScreenshotTutorials([{
+    src: 'image96.jpg',
+    caption: 'Saved before tutorial metadata was added.',
+  }]), [{
+    title: 'Create and select a warehouse',
+    url: 'https://www.youtube.com/watch?v=I95Sd5MCVD8&list=PLMN1y8VZcPd8',
+  }]);
+
+  const linkedUrls = new Set(SCREENSHOT_REGISTRY.flatMap((guide) =>
+    (guide.tutorials ?? []).map(({ url }) => url),
+  ));
+  assert.deepEqual(linkedUrls, new Set(TUTORIAL_VIDEO_ITEMS.map(({ source }) => source)));
 });
 
 test('ranks specific Product Memo screens from natural-language searches', () => {

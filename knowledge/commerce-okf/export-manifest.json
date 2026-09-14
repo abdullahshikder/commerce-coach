@@ -1,14 +1,14 @@
 {
   "generatedAt": "2026-09-12T09:42:55.374Z",
   "counts": {
-    "knowledge": 238,
+    "knowledge": 252,
     "merchantFaqs": 113,
     "workflows": 3,
     "training": 8,
     "quizzes": 35,
     "orderSources": 6,
     "visualGuides": 30,
-    "concepts": 320,
+    "concepts": 334,
     "screenshots": 112
   },
   "concepts": [
@@ -576,6 +576,76 @@
       "path": "faqs/merchant-faq-113.md",
       "title": "Where can I confirm Pathao Commerce fees or commission",
       "type": "Merchant FAQ"
+    },
+    {
+      "path": "tutorials/tutorial-video-001.md",
+      "title": "Video: Publish products to Pathao Shop",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-002.md",
+      "title": "Video: Manage inventory and stock",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-003.md",
+      "title": "Video: Create and publish an Online Store",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-004.md",
+      "title": "Video: Create a single product and variants",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-005.md",
+      "title": "Video: Connect Facebook",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-006.md",
+      "title": "Video: Connect WhatsApp",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-007.md",
+      "title": "Video: Sign up for Pathao Commerce",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-008.md",
+      "title": "Video: Bulk upload products with CSV",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-009.md",
+      "title": "Video: Connect Daraz and import products",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-010.md",
+      "title": "Video: Create and share an Instant Checkout link",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-011.md",
+      "title": "Video: Manage payments, payouts, and invoices",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-012.md",
+      "title": "Video: Create and select a warehouse",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-013.md",
+      "title": "Video: Create an Instant Delivery order",
+      "type": "Tutorial Video"
+    },
+    {
+      "path": "tutorials/tutorial-video-014.md",
+      "title": "Video: Connect Instagram",
+      "type": "Tutorial Video"
     },
     {
       "path": "knowledge/signup-001.md",

@@ -1,0 +1,16 @@
+# tutorials
+
+- [Video: Publish products to Pathao Shop](tutorial-video-001.md)
+- [Video: Manage inventory and stock](tutorial-video-002.md)
+- [Video: Create and publish an Online Store](tutorial-video-003.md)
+- [Video: Create a single product and variants](tutorial-video-004.md)
+- [Video: Connect Facebook](tutorial-video-005.md)
+- [Video: Connect WhatsApp](tutorial-video-006.md)
+- [Video: Sign up for Pathao Commerce](tutorial-video-007.md)
+- [Video: Bulk upload products with CSV](tutorial-video-008.md)
+- [Video: Connect Daraz and import products](tutorial-video-009.md)
+- [Video: Create and share an Instant Checkout link](tutorial-video-010.md)
+- [Video: Manage payments, payouts, and invoices](tutorial-video-011.md)
+- [Video: Create and select a warehouse](tutorial-video-012.md)
+- [Video: Create an Instant Delivery order](tutorial-video-013.md)
+- [Video: Connect Instagram](tutorial-video-014.md)

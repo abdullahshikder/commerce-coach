@@ -21,6 +21,9 @@ commerce_record:
     - google oauth
     - sign in with google
     - google account
+  tutorials:
+    - title: Sign up for Pathao Commerce
+      url: https://www.youtube.com/watch?v=weYyy08MafM&list=PLMN1y8VZcPd8
   screenshots:
     - src: image98.jpg
       caption: Authenticate with Google to continue signup.

@@ -18,6 +18,9 @@ export interface RetrievedCoachContext {
   uploaded?: {text:string;source:string;id:string}[];
 }
 
+const MAX_CONTEXT_CHARACTERS = 16_000;
+const MAX_PASSAGE_CHARACTERS = 4_000;
+
 function metadataValue(metadata: Record<string, EmbeddingMetadataValue>, key: string): string {
   const value = metadata[key];
   return Array.isArray(value) ? value.join(', ') : value === undefined ? '' : String(value);
@@ -46,7 +49,7 @@ export async function retrieveCoachContext(
     const response = await authFetch('/api/coach/retrieve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, kind: 'knowledge', limit: options.limit ?? 6 }),
+      body: JSON.stringify({ query, kind: 'knowledge', limit: options.limit ?? 4 }),
       signal: controller.signal,
     });
     if (!response.ok) return undefined;
@@ -59,12 +62,12 @@ export async function retrieveCoachContext(
       return [
         `[${index + 1}] ${document.id}${source ? ` (${source})` : ''}`,
         `Verification: ${['human-reviewed', 'machine-confirmed'].includes(metadataValue(document.metadata, 'trust')) ? metadataValue(document.metadata, 'trust') : 'unverified'}. This label describes source review, not proof of every claim.`,
-        document.text,
+        document.text.slice(0, MAX_PASSAGE_CHARACTERS),
       ].join('\n');
     });
     return {
       mode: payload.mode,
-      context: passages.join('\n\n'),
+      context: passages.join('\n\n').slice(0, MAX_CONTEXT_CHARACTERS),
       uploaded: payload.results.filter(({document})=>document.id.startsWith('upload:')).map(({document})=>({text:document.text,source:metadataValue(document.metadata,'source'),id:document.id})),
       documentIds: payload.results.map(({ document }) => document.id),
     };

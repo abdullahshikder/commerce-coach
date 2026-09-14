@@ -1,10 +1,8 @@
 import { SCREEN_CONTEXT_RULES, type ScreenContext } from '../../src/coach/screenContext';
-import { buildKnowledgeBasePrompt } from '../../src/coach/knowledgeBase';
-import { SCREENSHOT_INDEX, type Screenshot } from '../../src/coach/screenshots/manifest';
+import { searchScreenshots, type Screenshot } from '../../src/coach/screenshots/manifest';
 import { SCREENSHOT_SELECTION_RULES, resolveScreenshotIds } from './screenshotReview';
 import { parseModelJSON, type GenerateJSON, type UnderstoodRequest } from './requestUnderstanding';
-
-const REVIEW_DOCUMENTATION = buildKnowledgeBasePrompt();
+import { MODEL_BUDGET } from './modelBudget';
 
 export const ANSWER_REVIEW_PROMPT = `## FINAL ANSWER REVIEW
 ${SCREEN_CONTEXT_RULES}
@@ -39,19 +37,7 @@ ${SCREEN_CONTEXT_RULES}
 ${SCREENSHOT_SELECTION_RULES}
 The current request is the boundary for images. A full product creation image is not appropriate when the user has already entered basic product details or is editing variants.
 Return only JSON: {"selections":[{"id":"exact image filename","instructionIndex":0}]}. Use zero to four unique images in explanation order. Each image must point to the index of the final-answer instruction it illustrates in the supplied instructions list. Match the specific action, not just the feature name. A generic mention of Orders, status tabs, or a product does not support all screens in that feature. If the specific action in the caption is not explained, omit the image. Do not rewrite the answer.
-Catalogue:
-${JSON.stringify(SCREENSHOT_INDEX.map(({ src, caption, feature }) => ({ src, caption, feature })))}`;
-
-export const FINAL_VISUAL_SCHEMA = {
-  type: 'object', additionalProperties: false,
-  properties: {
-    selections: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false, properties: {
-      id: { type: 'string', enum: [...new Set(SCREENSHOT_INDEX.map(screen => screen.src))] },
-      instructionIndex: { type: 'integer', minimum: 0 },
-    }, required: ['id', 'instructionIndex'] } },
-  },
-  required: ['selections'],
-};
+Only choose from the compact candidate catalogue below.`;
 
 interface ReviewInput {
   conversation: { role: string; content: string }[];
@@ -63,10 +49,39 @@ interface ReviewInput {
   proposedScreenshotIds: string[];
 }
 
+function visualCandidates(input: ReviewInput, content: string): Screenshot[] {
+  const latestUser = [...input.conversation].reverse().find(message => message.role === 'user')?.content ?? '';
+  const query = [input.understood?.brief.request, input.understood?.brief.currentStep, latestUser, content]
+    .filter(Boolean).join('\n');
+  const candidates = [
+    ...searchScreenshots(query, { limit: MODEL_BUDGET.visualCandidates }),
+    ...resolveScreenshotIds(input.proposedScreenshotIds),
+  ];
+  const seen = new Set<string>();
+  return candidates.filter(candidate => {
+    if (seen.has(candidate.src)) return false;
+    seen.add(candidate.src);
+    return true;
+  }).slice(0, MODEL_BUDGET.visualCandidates);
+}
+
+function visualSchema(candidates: Screenshot[]): Record<string, unknown> {
+  return {
+    type: 'object', additionalProperties: false,
+    properties: {
+      selections: { type: 'array', maxItems: 4, items: { type: 'object', additionalProperties: false, properties: {
+        id: { type: 'string', enum: candidates.map(candidate => candidate.src) },
+        instructionIndex: { type: 'integer', minimum: 0 },
+      }, required: ['id', 'instructionIndex'] } },
+    },
+    required: ['selections'],
+  };
+}
+
 export async function reviewCoachAnswer(input: ReviewInput, generate: GenerateJSON): Promise<{ content: string; screenshots: Screenshot[] }> {
   let content = input.answer;
   try {
-    const value = parseModelJSON(await generate(ANSWER_REVIEW_PROMPT, { ...input, documentation: REVIEW_DOCUMENTATION }, ANSWER_REVIEW_SCHEMA)) as Record<string, unknown> | null;
+    const value = parseModelJSON(await generate(ANSWER_REVIEW_PROMPT, input, ANSWER_REVIEW_SCHEMA)) as Record<string, unknown> | null;
     if (!value || typeof value.answer !== 'string' || !value.answer.trim() || value.answer.length > 20000
       || !Array.isArray(value.checks) || value.checks.length > 20
       || !value.checks.every(check => check && typeof check.question === 'string' && typeof check.evidence === 'string')) {
@@ -80,16 +95,21 @@ export async function reviewCoachAnswer(input: ReviewInput, generate: GenerateJS
   }
 
   try {
+    const candidates = visualCandidates(input, content);
+    if (!candidates.length) return { content, screenshots: [] };
     // Keep the visual pass free of whole articles and feature IDs that can pull it back into a full guide.
     const instructions = content.split(/\n+/).map(text => text.trim()).filter(Boolean).map((text, index) => ({ index, text }));
     const visualInput = { screenContext: input.screenContext, conversation: input.conversation, currentRequest: input.understood?.brief, answer: content, instructions };
+    const candidateIds = new Set(candidates.map(candidate => candidate.src));
+    const schema = visualSchema(candidates);
+    const catalogue = JSON.stringify(candidates.map(({ src, caption, feature }) => ({ src, caption, feature })));
     for (let attempt = 0; attempt < 2; attempt++) {
-      const selectionPrompt = FINAL_VISUAL_REVIEW_PROMPT + (attempt ? '\nYour previous image selection was invalid. Use exact image filenames from the schema, never feature IDs. Each instructionIndex must refer to a supplied instruction that explains the action in that image.' : '');
-      const value = parseModelJSON(await generate(selectionPrompt, visualInput, FINAL_VISUAL_SCHEMA)) as Record<string, unknown> | null;
+      const selectionPrompt = `${FINAL_VISUAL_REVIEW_PROMPT}\nCandidate catalogue:\n${catalogue}` + (attempt ? '\nYour previous image selection was invalid. Use exact image filenames from the schema, never feature IDs. Each instructionIndex must refer to a supplied instruction that explains the action in that image.' : '');
+      const value = parseModelJSON(await generate(selectionPrompt, visualInput, schema)) as Record<string, unknown> | null;
       // Some routed providers only approximate schemas. Validate locally and allow one correction.
       if (value && Array.isArray(value.selections) && value.selections.length <= 4
         && value.selections.every(selection => selection && typeof selection.id === 'string'
-          && SCREENSHOT_INDEX.some(screen => screen.src === selection.id)
+          && candidateIds.has(selection.id)
           && Number.isInteger(selection.instructionIndex) && selection.instructionIndex >= 0
           && selection.instructionIndex < visualInput.instructions.length)) {
         return { content, screenshots: resolveScreenshotIds(value.selections.map(selection => selection.id)) };

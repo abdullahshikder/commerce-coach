@@ -25,6 +25,9 @@ commerce_record:
     - independent merchant
     - otp verification
     - dashboard
+  tutorials:
+    - title: Sign up for Pathao Commerce
+      url: https://www.youtube.com/watch?v=weYyy08MafM&list=PLMN1y8VZcPd8
   screenshots:
     - src: image89.jpg
       caption: Choose independent, Courier, or Google signup.

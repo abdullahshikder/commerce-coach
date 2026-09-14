@@ -1,11 +1,12 @@
 import { freshScreenContext, screenContextPrompt, type ScreenContext } from '../../src/coach/screenContext';
-import {providerUsage} from '../observability';
+import { recordTokenUsage } from './tokenUsage';
 import { withTransientProviderRetry } from './providerRetry';
 import { GoogleGenAI, type Content } from '@google/genai';
 import { ANSWER_TOOL_DECLARATIONS, executeTool, type ToolResult } from '../../src/coach/llmTools';
 import { COACH_SYSTEM_PROMPT as SYSTEM_PROMPT } from './systemPrompt';
 import { reviewCoachAnswer } from './answerReview';
 import { understandRequest, understandingContext, type GenerateJSON, type UnderstoodRequest } from './requestUnderstanding';
+import { MODEL_BUDGET, recentConversation, structuredModelPhase, structuredOutputBudget } from './modelBudget';
 import type { ChatMessage, ConversationState } from '../../src/coach/responseEngine';
 
 // ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ function buildContents(
   const contents: Content[] = [];
 
   // Keep the same conversation window passed by the client.
-  const recentMessages = messages.slice(-30);
+  const recentMessages = recentConversation(messages);
 
   for (const msg of recentMessages) {
     if (msg.role === 'user') {
@@ -67,9 +68,9 @@ function jsonGenerator(client: GoogleGenAI): GenerateJSON {
     const response = await withTransientProviderRetry(() => client.models.generateContent({
       model: 'gemini-3.5-flash-lite',
       contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
-      config: { systemInstruction: instructions, responseMimeType: 'application/json', ...(schema ? { responseJsonSchema: schema } : {}), temperature: 0, maxOutputTokens: 4096 },
+      config: { systemInstruction: instructions, responseMimeType: 'application/json', ...(schema ? { responseJsonSchema: schema } : {}), temperature: 0, maxOutputTokens: structuredOutputBudget(instructions) },
     }));
-    providerUsage('gemini', { inputTokens: response.usageMetadata?.promptTokenCount, outputTokens: response.usageMetadata?.candidatesTokenCount });
+    await recordTokenUsage('gemini', { phase: structuredModelPhase(instructions), inputTokens: response.usageMetadata?.promptTokenCount, outputTokens: response.usageMetadata?.candidatesTokenCount });
     return response.text ?? '';
   };
 }
@@ -102,10 +103,10 @@ async function processWithTools(
           : SYSTEM_PROMPT) + understandingContext(understood),
         tools: [{ functionDeclarations: ANSWER_TOOL_DECLARATIONS }],
         temperature: 0.7,
-        maxOutputTokens: 2048,
+        maxOutputTokens: MODEL_BUDGET.generationOutputTokens,
       },
     }));
-    providerUsage('gemini',{inputTokens:response.usageMetadata?.promptTokenCount,outputTokens:response.usageMetadata?.candidatesTokenCount});
+    await recordTokenUsage('gemini',{phase:'generation',inputTokens:response.usageMetadata?.promptTokenCount,outputTokens:response.usageMetadata?.candidatesTokenCount});
 
     const functionCalls = response.functionCalls;
 
@@ -193,7 +194,7 @@ export async function generateLLMResponse(
   retrievalContext = (retrievalContext ?? '') + screenContextPrompt(screenContext);
   const understood = await understandRequest(messages, jsonGenerator(client), screenContext);
   const contents = buildContents(messages);
-  return processWithTools(client, contents, understood, retrievalContext, 5, screenContext);
+  return processWithTools(client, contents, understood, retrievalContext, 3, screenContext);
 }
 
 export function isGeminiAvailable(): boolean {

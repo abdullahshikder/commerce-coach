@@ -27,6 +27,9 @@ commerce_record:
     - pod
     - collection
     - order status
+  tutorials:
+    - title: Create an Instant Delivery order
+      url: https://www.youtube.com/watch?v=RTYd4bdKMxk&list=PLMN1y8VZcPd8
   screenshots:
     - src: image43.jpg
       caption: Return to business information after skipping the setup form.

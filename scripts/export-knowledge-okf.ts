@@ -8,7 +8,8 @@ import {SCREENSHOT_REGISTRY} from '../src/coach/screenshots/manifest';
 import {parseOKF} from '../server/coach/okf';
 
 const output=resolve(process.argv[2]??'knowledge/commerce-okf');
-const timestamp=new Date().toISOString();
+// A pinned export time keeps generated bundles reviewable and reproducible in release automation.
+const timestamp=new Date(process.env.SOURCE_DATE_EPOCH||Date.now()).toISOString();
 const concepts:{path:string;title:string;type:string}[]=[];
 const images=new Set<string>();
 const slug=(text:string)=>text.toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,'');
@@ -25,6 +26,7 @@ async function concept(path:string,type:string,title:string,record:any,body:stri
 }
 for(const item of KNOWLEDGE_BASE){
  const merchantFaq=item.id.startsWith('merchant-faq-');
+ const tutorialVideo=item.id.startsWith('tutorial-video-');
  const workflow=COACH_WORKFLOWS.find(value=>value.knowledgeId===item.id);
  const translation=item.translations?.bn;
  const refs=item.screenshotIds?.map(id=>{
@@ -33,15 +35,15 @@ for(const item of KNOWLEDGE_BASE){
   if(/\.(png|jpg)$/.test(id)){images.add(id);return `![${item.feature}](/assets/screenshots/${id})`;}
   return `Screenshot reference: ${id}`;
  }).join('\n\n')??'';
- await concept(`${merchantFaq?'faqs':'knowledge'}/${item.id}.md`,merchantFaq?'Merchant FAQ':'Product Knowledge',item.feature,item,
+ await concept(`${merchantFaq?'faqs':tutorialVideo?'tutorials':'knowledge'}/${item.id}.md`,merchantFaq?'Merchant FAQ':tutorialVideo?'Tutorial Video':'Product Knowledge',item.feature,item,
   `# ${item.question}\n\n${item.answer}\n`+
   (translation?`\n## বাংলা\n\n### ${translation.question}\n\n${translation.answer}\n`:'')+
   `\nProduct availability: **${item.status}**.\n`+
   list('How it works',item.howItWorks)+list('Prerequisites',item.prerequisites)+steps(item.steps)+list('Edge cases',item.edgeCases)+list('Customer experience notes',item.cxNotes)+
   (item.merchantCommunication?`\n## Merchant communication\n\n${item.merchantCommunication}\n`:'')+
   (workflow?`\n## Related workflow\n\n[${workflow.feature}](/workflows/${workflow.id}.md)\n`:'')+
-  (refs?`\n## ${merchantFaq?'Step-by-step guide':'Screenshots'}\n\n${refs}\n`:''),
-  {tags:[item.domain,...item.keywords],product_status:item.status,description:item.question,source_record:merchantFaq?'src/coach/merchantFaq.ts':'src/coach/knowledgeBase.ts'});
+  (refs?`\n## ${merchantFaq||tutorialVideo?'Step-by-step guide':'Screenshots'}\n\n${refs}\n`:''),
+  {tags:[item.domain,...item.keywords],product_status:item.status,description:item.question,source_record:merchantFaq?'src/coach/merchantFaq.ts':tutorialVideo?'src/coach/tutorialVideos.ts':'src/coach/knowledgeBase.ts'});
 }
 for(const workflow of COACH_WORKFLOWS){
  const translation=workflow.translations?.bn;

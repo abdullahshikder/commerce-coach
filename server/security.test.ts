@@ -32,11 +32,11 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
   const admin = new Pool({ connectionString: migration.toString() });
   cleanup = () => admin.end();
   const { app } = await import('./app');
-  const { pool, withSession, checkDatabase, closeDb } = await import('./db');
+  const { pool, authPool, withSession, checkDatabase, closeDb } = await import('./db');
   const password='Correct horse battery staple 2026';
   const hash=await hashPassword(password);
   const orgA=randomUUID(), orgB=randomUUID();
-  await admin.query('INSERT INTO coach_private.organizations(id,slug,name) VALUES($1,\'alpha\',\'Alpha\'),($2,\'beta\',\'Beta\')',[orgA,orgB]);
+  await admin.query('INSERT INTO coach_private.organizations(id,slug,name) VALUES($1,\'pathao\',\'Pathao\'),($2,\'beta\',\'Beta\')',[orgA,orgB]);
   const ids: Record<string,string>={};
   for(const [name,org,role] of [['admin',orgA,'admin'],['reviewer',orgA,'reviewer'],['member',orgA,'member'],['other',orgA,'member'],['beta',orgB,'admin']]){
     ids[name]=randomUUID();
@@ -47,14 +47,22 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
   const url=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
   type Login={cookie:string;csrf:string;token:string;user:any};
   const request=(path:string,login?:Login,body?:unknown,method=body===undefined?'GET':'POST',extra={})=>fetch(url+path,{method,headers:{'Content-Type':'application/json','X-Coach-Request':'1',...(login?{Cookie:login.cookie,'X-CSRF-Token':login.csrf}:{}),...extra},...(body===undefined?{}:{body:JSON.stringify(body)})});
-  const signIn=async(name:string,org='alpha',pass=password):Promise<Login>=>{
-    const response=await request('/api/auth/login',undefined,{organization:org,email:`${name}@example.com`,password:pass});
-    assert.equal(response.status,200);
-    const cookieHeader=response.headers.get('set-cookie')!;assert.match(cookieHeader,/HttpOnly/);assert.match(cookieHeader,/SameSite=Strict/);
-    const cookie=cookieHeader.split(';')[0];const token=cookie.split('=')[1];
+  const session=async(token:string):Promise<Login>=>{
+    const cookie=`coach_session=${token}`;
     const provisional={cookie,csrf:'',token,user:null};
     const me=await (await request('/api/auth/me',provisional)).json();
     return {...provisional,csrf:me.user.csrf_token,user:me.user};
+  };
+  const signIn=async(name:string,pass=password):Promise<Login>=>{
+    const response=await request('/api/auth/login',undefined,{email:`${name}@example.com`,password:pass});
+    assert.equal(response.status,200);
+    const cookieHeader=response.headers.get('set-cookie')!;assert.match(cookieHeader,/HttpOnly/);assert.match(cookieHeader,/SameSite=Strict/);
+    return session(cookieHeader.split(';')[0].split('=')[1]);
+  };
+  const openTestSession=async(name:string):Promise<Login>=>{
+    const token=randomToken();
+    await authPool.query('SELECT public.coach_open_session($1,$2,$3,$4)',[ids[name],hash,digest(token),randomToken()]);
+    return session(token);
   };
   let member:Login,other:Login,reviewer:Login,alphaAdmin:Login,beta:Login;
   let feedbackId:string, betaFeedbackId:string;
@@ -73,10 +81,11 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       for(const [path,body] of [['/api/config',undefined],['/api/coach/retrieve',{query:'orders'}],['/api/coach/generate',{}],['/api/coach/feedback',{}],['/api/analytics',undefined],['/api/users',undefined]] as const){
         assert.equal((await request(path,undefined,body,body === undefined ? 'GET' : 'POST',{'x-user-id':ids.admin,'x-user-role':'admin',Authorization:'Bearer local-browser-test-token'})).status,401);
       }
-      assert.equal((await request('/api/auth/login',undefined,{organization:'alpha',email:'admin@example.com',password:'wrong'})).status,401);
+      assert.equal((await request('/api/auth/login',undefined,{email:'admin@example.com',password:'wrong'})).status,401);
     });
     await t.test('individual sign-in binds role and organization to database sessions',async()=>{
-      member=await signIn('member');other=await signIn('other');reviewer=await signIn('reviewer');alphaAdmin=await signIn('admin');beta=await signIn('beta','beta');
+      assert.equal((await request('/api/auth/login',undefined,{organization:'beta',email:'beta@example.com',password})).status,401);
+      member=await signIn('member');other=await signIn('other');reviewer=await signIn('reviewer');alphaAdmin=await signIn('admin');beta=await openTestSession('beta');
       assert.equal(member.user.role,'member');assert.equal(member.user.organization_id,orgA);
       assert.equal(beta.user.organization_id,orgB);
       const stored=(await admin.query('SELECT token_hash FROM coach_private.sessions WHERE user_id=$1',[ids.member])).rows[0];
@@ -111,7 +120,7 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
     });
     await t.test('knowledge is mirrored read-only and query logs remain private to their author',async()=>{
       const knowledge=(await pool.query("SELECT record_type,count(*)::integer AS count FROM public.coach_knowledge WHERE active GROUP BY record_type ORDER BY record_type")).rows;
-      assert.deepEqual(knowledge,[{record_type:'merchant-faq',count:113},{record_type:'product-knowledge',count:125}]);
+      assert.deepEqual(knowledge,[{record_type:'merchant-faq',count:113},{record_type:'product-knowledge',count:139}]);
       await assert.rejects(pool.query("UPDATE public.coach_knowledge SET answer='forged' WHERE id='merchant-faq-001'"),{code:'42501'});
       const queryId=randomUUID();
       await withSession(digest(member.token),client=>client.query(`INSERT INTO public.coach_query_logs
@@ -130,12 +139,16 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
     await t.test('admin analytics are aggregate-only, tenant-scoped, and inaccessible to members and reviewers',async()=>{
       await assert.rejects(pool.query('SELECT * FROM coach_private.analytics_queries'),{code:'42501'});
       await withSession(digest(member.token),client=>client.query("SELECT public.coach_record_generation_failure('gemini','provider-request')"));
+      await admin.query(`INSERT INTO public.coach_query_logs
+        (id,organization_id,user_id,query,answer,provider,mode,retrieval_document_ids,screenshot_ids,created_at)
+        VALUES($1,$2,$3,'Previous period query','Previous period answer','openrouter','training','["merchant-faq-001"]','[]',current_date-31)`,[randomUUID(),orgA,ids.member]);
       assert.equal((await request('/api/analytics',member)).status,403);
       assert.equal((await request('/api/analytics',reviewer)).status,403);
       assert.equal((await request('/api/analytics?days=10',alphaAdmin)).status,400);
       await assert.rejects(withSession(digest(member.token),client=>client.query('SELECT public.coach_admin_analytics(30)')),{code:'42501'});
       const alpha=await (await request('/api/analytics?days=30',alphaAdmin)).json();
       assert.equal(alpha.totals.queries,1);assert.equal(alpha.totals.failures,1);
+      assert.equal(alpha.totals.groundedQueries,0);assert.equal(alpha.previousTotals.queries,1);assert.equal(alpha.previousTotals.groundedQueries,1);
       assert.equal(alpha.totals.feedback,2);assert.equal(alpha.totals.unhelpful,2);assert.equal(alpha.totals.pendingFeedback,2);
       assert.deepEqual(alpha.providers,[{name:'gemini',count:1}]);
       assert.deepEqual(alpha.topics,[{name:'General',count:1}]);
@@ -148,7 +161,8 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       const list=await (await request('/api/coach/feedback',reviewer)).json();assert.equal(list.items.length,2);
       assert.equal((await request(`/api/coach/feedback/${betaFeedbackId}`,reviewer,{status:'approved'},'PATCH')).status,404);
       assert.equal((await request('/api/users',reviewer)).status,403);
-      const result=await request(`/api/coach/feedback/${feedbackId}`,reviewer,{status:'approved',reviewerId:ids.beta},'PATCH');assert.equal(result.status,200);assert.equal((await result.json()).feedback.reviewerId,ids.reviewer);
+      const result=await request(`/api/coach/feedback/${feedbackId}`,reviewer,{status:'approved',reviewerId:ids.beta,suggestedAnswer:'Open Online Stores, then edit the store analytics account.'},'PATCH');assert.equal(result.status,200);const reviewed=(await result.json()).feedback;assert.equal(reviewed.reviewerId,ids.reviewer);assert.equal(reviewed.suggestedAnswer,'Open Online Stores, then edit the store analytics account.');
+      const retrieval=await request('/api/coach/retrieve',reviewer,{query:'Open Online Stores analytics account'});assert.equal(retrieval.status,200);assert.ok((await retrieval.json()).results.some((entry:any)=>entry.document.id===`correction:${feedbackId}`));
     });
     await t.test('admin account management stays in the organization and prevents removal of the last admin',async()=>{
       assert.equal((await request(`/api/users/${ids.beta}`,alphaAdmin,{role:'member',active:false},'PATCH')).status,404);
@@ -161,7 +175,7 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       const nextPassword='A different strong passphrase 2026';
       assert.equal((await request('/api/auth/password',temporary,{currentPassword:password,newPassword:nextPassword})).status,200);
       assert.equal((await request('/api/auth/me',temporary)).status,401);
-      const changed=await signIn('new','alpha',nextPassword);assert.equal(changed.user.must_change_password,false);
+      const changed=await signIn('new',nextPassword);assert.equal(changed.user.must_change_password,false);
     });
     await t.test('conversation history persists privately with RLS, CSRF, and revision protection',async()=>{
       const id=randomUUID();
@@ -202,8 +216,8 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       oauth.use('/api/auth/google',createGoogleRouter(async(_code,verifier)=>{exchanges++;assert.match(verifier,/^[\w-]{43}$/);return payload;}));
       const googleServer=oauth.listen(0,'127.0.0.1');await new Promise<void>(resolve=>googleServer.once('listening',resolve));
       const googleUrl=`http://127.0.0.1:${(googleServer.address() as {port:number}).port}/api/auth/google`;
-      const begin=async(organization='alpha')=>{
-        const response=await fetch(googleUrl+'/start',{method:'POST',headers:{'Content-Type':'application/json','X-Coach-Request':'1',Origin:'http://localhost:4010'},body:JSON.stringify({organization})});
+      const begin=async()=>{
+        const response=await fetch(googleUrl+'/start',{method:'POST',headers:{'Content-Type':'application/json','X-Coach-Request':'1',Origin:'http://localhost:4010'},body:'{}'});
         assert.equal(response.status,200);const target=new URL((await response.json()).url);
         assert.equal(target.hostname,'accounts.google.com');assert.equal(target.searchParams.get('code_challenge_method'),'S256');
         assert.match(target.searchParams.get('code_challenge')!,/^[\w-]{43}$/);
@@ -212,7 +226,7 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
         return {state:target.searchParams.get('state')!,cookie:response.headers.get('set-cookie')!.split(';')[0]};
       };
       const callback=(flow:{state:string;cookie:string})=>fetch(googleUrl+`/callback?code=test-code&state=${flow.state}`,{headers:{Cookie:flow.cookie},redirect:'manual'});
-      const denied=async(change:()=>void,reason='account',organization='alpha')=>{const flow=await begin(organization);change();const result=await callback(flow);assert.match(result.headers.get('location')!,new RegExp(`google_error=${reason}`));assert.ok(!result.headers.get('set-cookie')!.includes('coach_session='));};
+      const denied=async(change:()=>void,reason='account')=>{const flow=await begin();change();const result=await callback(flow);assert.match(result.headers.get('location')!,new RegExp(`google_error=${reason}`));assert.ok(!result.headers.get('set-cookie')!.includes('coach_session='));};
       try{
         await assert.rejects(pool.query("SELECT public.coach_google_open_session('alpha','member@example.com','sub',true,'token','csrf')"),{code:'42501'});
         const flow=await begin();const before=exchanges;
@@ -224,7 +238,6 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
         const replay=await callback(flow);assert.match(replay.headers.get('location')!,/expired/);assert.equal(exchanges,before+1);
         await denied(()=>{payload.sub='different-sub';});
         await denied(()=>{payload.email='unknown@example.com';payload.sub='unknown';});
-        await denied(()=>{},'account','beta');
         await denied(()=>{payload.nonce='wrong';},'failed');
         await denied(()=>{payload.email_verified=false;},'failed');
         await denied(()=>{payload.email='other@example.com';payload.sub='external';delete payload.hd;});

@@ -47,3 +47,17 @@ The user approved the previously blocked synthetic/internal-documentation OpenRo
 **Over:** Moving FAQ authoring entirely into PostgreSQL or relying only on conversation snapshots for query history.
 **Why:** The built-in help remains available during database or sync problems, while the database becomes directly queryable and records retrieval provenance. Query rows use forced RLS and omit the full internal retrieval prompt to limit sensitive duplication.
 **Model:** GPT-5 · 2026-09-12
+
+## 2026-09-13 — Derive richer analytics from anonymous daily facts
+
+**Chose:** Extend the admin aggregate with previous-period totals and a grounded-query count, then derive rates, daily averages, active days, and busiest day in the client.
+**Over:** Copying query text or user identifiers into new reporting tables, or adding decorative metrics without a defensible denominator.
+**Why:** Admins gain comparable adoption, reliability, grounding, and feedback signals while the database continues to expose only tenant-level anonymous facts. The immediately preceding equal-length window is a consistent baseline for every 7/30/90-day view.
+**Model:** GPT-5 · 2026-09-13
+
+## 2026-09-13 — Pair official tutorial evidence with visual guides
+
+**Chose:** Review every video in the official Pathao Commerce playlist, store one bilingual task guide per video, and attach each official YouTube URL to the matching screenshot guide and answer export.
+**Over:** Inferring steps from video titles, importing raw transcripts, or showing an untraceable image without its relevant tutorial source.
+**Why:** Concise authored summaries are searchable and maintainable, while direct source links preserve provenance. A set-level screenshot mapping lets the chat, copied/downloaded PNG, and PDF all carry one deduplicated tutorial reference without duplicating URLs on every image record.
+**Model:** GPT-5 · 2026-09-13

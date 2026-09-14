@@ -27,6 +27,9 @@ commerce_record:
     - column mapping
     - validation
     - import products
+  tutorials:
+    - title: Bulk upload products with CSV
+      url: https://www.youtube.com/watch?v=jq5rHfRStjs&list=PLMN1y8VZcPd8
   screenshots:
     - src: image107.jpg
       caption: Choose CSV, XLSX, or Daraz import and select a warehouse.

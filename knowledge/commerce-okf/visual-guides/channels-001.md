@@ -23,6 +23,9 @@ commerce_record:
     - bulk publish
     - category mapping
     - sales channel
+  tutorials:
+    - title: Publish products to Pathao Shop
+      url: https://www.youtube.com/watch?v=-Gup_tswNK8&list=PLMN1y8VZcPd8
   screenshots:
     - src: image85.jpg
       caption: Bulk publish selected products to Pathao Shop.

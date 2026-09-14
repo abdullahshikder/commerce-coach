@@ -36,3 +36,29 @@
 - The local migration and startup check pass. `npm run verify` passes with 127/127 tests and 10/10 workflow evaluations. The new disposable-PostgreSQL analytics security subtest passes; the pre-existing attachment-upload fixture remains the suite's only failure.
 - Browser verification covered the real admin navigation, zero-data dashboard, privacy notice, totals, trend, breakdown empty states, and corrected date-only labels. The disposable browser-test account/organization was removed and the dev server stopped. No paid provider generation was made.
 **Model:** GPT-5 · 2026-09-12
+
+## 2026-09-12 — deployment-readiness verification
+- Commit `4606942` is pushed to `origin/main`. Local `npm run verify` passes: TypeScript, 127/127 tests, 10/10 workflow evaluations, and production build. Migration, 238-record knowledge sync, restricted-role startup checks, backup creation, and `pg_restore --list` validation also pass.
+- A local-only API/store exercise passed login, lexical FAQ retrieval, conversation persistence, helpful feedback, private query capture, and admin analytics. The resulting dashboard showed one query, one helpful feedback item, one expected provider/mode/topic, and one deliberately induced not-configured failure. All disposable tenant data and the temporary dump were removed; the dev server is stopped.
+- `npm run production:check -- --live` separately confirmed configured OpenRouter embedding and generation connectivity using its synthetic probes (reported provider cost about US$0.0288). No retrieved FAQ/document context was sent during the local end-to-end flow.
+- GitHub Actions run `34700597391` is red only at `npm run test:security`: PostgreSQL 17 reports ambiguous `a.id` in `public.coach_attachment_quota()` because the PL/pgSQL record variable and `FROM public.coach_actor() a` use the same name. Fix migration 007's alias, then rerun CI before deployment.
+- Production HTTPS origins and Google SSO are not configured locally; no staging host is connected. `data/coach-embeddings.json` remains the intentionally stale 239-vector snapshot and requires explicit approval before rebuilding from FAQ/screenshot-derived content.
+**Model:** GPT-5 · 2026-09-12
+
+## 2026-09-13 — second local administrator
+- A second persistent local administrator, `admin2@coach.local`, now belongs to the `pathao` organization. The account is active and its temporary password has already been changed (`must_change_password=false`). The current plaintext password is not stored in the repository or handover.
+**Model:** GPT-5 · 2026-09-13
+
+## 2026-09-13 — richer analytics and official tutorial library
+- Migration 010 expands the existing aggregate-only Analytics API with current-versus-previous 7/30/90-day totals and grounded-query counts. The admin view now shows recorded success-event share, knowledge-grounding and helpfulness rates, ratings, pending reviews, a three-series daily chart, active days, average volume, busiest day, and failure comparison. No query text, answers, or user identities were added to analytics facts.
+- All 14 videos in the official Pathao Commerce tutorial playlist were reviewed through their captions and, where captions were sparse, the demonstrated UI. `src/coach/tutorialVideos.ts` stores bilingual summaries, exact steps, official YouTube URLs, and matching visual-guide IDs. The OKF Library has a dedicated Tutorial videos category.
+- Related screenshots carry deduplicated official tutorial metadata. Chat surfaces show the full official URL as selectable video-caption text. Touch/mobile Share sends the clean PNG file with only the URL; desktop users get separate Copy image and Copy URL controls because macOS Share → Copy adds Chrome's temporary WebShare path. PNG downloads do not rasterize the link, while PDF exports retain a clickable caption URL.
+- The local database migration and knowledge sync pass and contain 252 active mirror rows: 113 merchant FAQs and 139 product-knowledge records. `npm run verify` passes with 130/130 tests, 10/10 workflow evaluations, typecheck, and production build. The database-backed analytics/RBAC subtest passes; the full security suite still has only the previously documented migration-007 attachment quota failure.
+- `data/coach-embeddings.json` remains the older 239-vector snapshot. No OpenRouter API key is configured in `data/admin.env`, so no paid rebuild was attempted; runtime uses lexical retrieval until a current snapshot is built.
+**Model:** GPT-5 · 2026-09-13
+
+## 2026-09-13 — Pathao-only sign-in
+- The sign-in form no longer asks for an organization. Password and Google login send no tenant selection, and both server routes resolve the shared `pathao` workspace constant.
+- A real local API login without an organization field returned 200 and bound the disposable account to `pathao`; the account, session, and plaintext test password were removed afterward. `npm run verify` passes (127/127 tests and 10/10 evaluations). The PostgreSQL security suite passes all auth/Google/RLS checks and still fails only at the previously documented migration 007 attachment-trigger defect.
+- Automated browser inspection was unavailable because the browser request-header policy could not load. The production build and compiled bundle contain no Organization form field or label.
+**Model:** GPT-5 · 2026-09-13

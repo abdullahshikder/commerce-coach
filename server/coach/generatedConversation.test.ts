@@ -6,7 +6,9 @@ import { executeTool } from '../../src/coach/llmTools';
 import { resolveScreenshotIds } from './screenshotReview';
 import { REQUEST_UNDERSTANDING_PROMPT, understandRequest, type RequestUnderstanding } from './requestUnderstanding';
 import { reviewCoachAnswer } from './answerReview';
+import { MODEL_BUDGET, recentConversation } from './modelBudget';
 import { withTransientProviderRetry } from './providerRetry';
+import { COACH_SYSTEM_PROMPT } from './systemPrompt';
 
 // All requests are intercepted. These verify pipeline contracts, not live model accuracy.
 process.env.OPENROUTER_API_KEY = 'test-placeholder';
@@ -67,6 +69,12 @@ for (const provider of ['openrouter', 'gemini'] as const) {
     const answer = 'At Variants, add Size and Color, enter S/M and Red/Blue, then review combinations.';
     await scenario(provider, { turns: [{ text: answer }], review: { answer, screenshot_ids: ['image102.jpg', 'image105.jpg'] } }, (response, requests) => {
       assert.deepEqual(requests.map(r => r.phase), ['understand', 'generate', 'review', 'visual']);
+      const outputLimit = (request: { body: any }) => provider === 'openrouter'
+        ? request.body.max_tokens : request.body.generationConfig.maxOutputTokens;
+      assert.equal(outputLimit(requests[0]), MODEL_BUDGET.understandingOutputTokens);
+      assert.equal(outputLimit(requests[1]), MODEL_BUDGET.generationOutputTokens);
+      assert.equal(outputLimit(requests[2]), MODEL_BUDGET.answerReviewOutputTokens);
+      assert.equal(outputLimit(requests[3]), MODEL_BUDGET.visualReviewOutputTokens);
       if (provider === 'openrouter') {
         assert.equal(requests[1].body.model, 'google/gemini-2.5-flash');
         for (const request of requests.filter(r => r.phase !== 'generate')) assert.equal(request.body.model, 'test-reviewer');
@@ -162,6 +170,23 @@ for (const provider of ['openrouter', 'gemini'] as const) {
   });
 }
 
+test('single-turn requests use local understanding and focused evidence', async () => {
+  let modelCalls = 0;
+  const understood = await understandRequest([
+    { id: 'single', role: 'user', content: 'How do I add a warehouse?', timestamp: new Date() },
+  ], async () => { modelCalls++; return ''; });
+  assert.equal(modelCalls, 0);
+  assert.equal(understood?.brief.request, 'How do I add a warehouse?');
+  assert.ok(understood?.evidence.length);
+});
+
+test('model context stays within the configured conversation and prompt budgets', () => {
+  const messages = Array.from({ length: 20 }, (_, index) => ({ content: `message-${index}` }));
+  assert.deepEqual(recentConversation(messages), messages.slice(-MODEL_BUDGET.conversationMessages));
+  assert.ok(COACH_SYSTEM_PROMPT.length < 10_000);
+  assert.doesNotMatch(COACH_SYSTEM_PROMPT, /PATHAO COMMERCE KNOWLEDGE BASE/);
+});
+
 test('understanding rejects malformed or excessive fields without inventing a request', async () => {
   for (const value of [{}, { ...variantBrief, searchQueries: Array(5).fill('orders') }, { ...variantBrief, needsAccountAccess: 'yes' }]) {
     assert.equal(await understandRequest(history, async () => JSON.stringify(value)), undefined);
@@ -185,13 +210,14 @@ test('visual references reject unknown IDs, remove duplicates, and cap the galle
 
 test('review repairs a feature ID once even when a provider ignores the schema', async () => {
   let calls = 0;
-  const result = await reviewCoachAnswer({ conversation: [], answer: 'Draft', proposedScreenshotIds: [] }, async (instructions, input) => {
+  const answer = 'Open Warehouse Management and select Add Warehouse.';
+  const result = await reviewCoachAnswer({ conversation: [{ role: 'user', content: 'How do I add a warehouse?' }], answer, proposedScreenshotIds: [] }, async (instructions, input) => {
     calls++;
     if (calls === 3) {
       assert.match(instructions, /previous image selection was invalid/);
-      assert.equal((input as { answer: string }).answer, 'Reviewed answer');
+      assert.equal((input as { answer: string }).answer, answer);
     }
-    return JSON.stringify({ checks: [], answer: 'Reviewed answer', selections: [{ id: calls <= 2 ? 'warehouse-001' : 'image96.jpg', instructionIndex: 0 }] });
+    return JSON.stringify({ checks: [], answer, selections: [{ id: calls <= 2 ? 'warehouse-001' : 'image96.jpg', instructionIndex: 0 }] });
   });
   assert.equal(calls, 3);
   assert.deepEqual(result.screenshots.map(s => s.src), ['image96.jpg']);

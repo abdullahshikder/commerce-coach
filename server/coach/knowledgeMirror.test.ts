@@ -4,7 +4,7 @@ import { buildKnowledgeMirrorRecords, syncKnowledgeMirror } from './knowledgeMir
 
 test('builds a deterministic SQL mirror for all knowledge and merchant FAQs', () => {
   const records = buildKnowledgeMirrorRecords();
-  assert.equal(records.length, 238);
+  assert.equal(records.length, 252);
   assert.equal(records.filter(({ recordType }) => recordType === 'merchant-faq').length, 113);
   assert.equal(new Set(records.map(({ id }) => id)).size, records.length);
   const faq = records.find(({ id }) => id === 'merchant-faq-084');

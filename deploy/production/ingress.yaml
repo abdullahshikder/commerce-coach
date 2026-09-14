@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: commerce-coach
+  namespace: commerce-coach
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 8m
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+spec:
+  ingressClassName: INGRESS_CLASS_PLACEHOLDER
+  tls:
+    - hosts:
+        - COACH_DOMAIN_PLACEHOLDER
+      secretName: COACH_TLS_SECRET_PLACEHOLDER
+  rules:
+    - host: COACH_DOMAIN_PLACEHOLDER
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: commerce-coach
+                port:
+                  name: http

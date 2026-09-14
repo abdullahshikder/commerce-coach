@@ -23,6 +23,9 @@ commerce_record:
     - analytics account
     - pixel id
     - tracking
+  tutorials:
+    - title: Create and publish an Online Store
+      url: https://www.youtube.com/watch?v=pnNK5kneHzY&list=PLMN1y8VZcPd8
   screenshots:
     - src: image25.jpg
       caption: Configure a Pixel and Conversion API analytics account.

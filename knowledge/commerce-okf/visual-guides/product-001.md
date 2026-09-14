@@ -25,6 +25,9 @@ commerce_record:
     - variant
     - attribute
     - sku
+  tutorials:
+    - title: Create a single product and variants
+      url: https://www.youtube.com/watch?v=2fwaZhpNOZk&list=PLMN1y8VZcPd8
   screenshots:
     - src: image100.jpg
       caption: Create a single product from Products.

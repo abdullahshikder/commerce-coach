@@ -25,6 +25,9 @@ commerce_record:
     - facebook page
     - permissions
     - connect channel
+  tutorials:
+    - title: Connect Facebook
+      url: https://www.youtube.com/watch?v=okLbyhWQBdc&list=PLMN1y8VZcPd8
   screenshots:
     - src: image61.jpg
       caption: Continue the Facebook connection after Meta authentication.

@@ -2,6 +2,8 @@
 
 Standalone React/Vite frontend and Express backend with individual authentication, organization-scoped RBAC, and **native PostgreSQL row-level security**. PostgreSQL replaces SQLite for runtime data; the original SQLite file is retained for import and rollback.
 
+Production Kubernetes configuration and its guarded release workflow are documented in [deploy/production/README.md](deploy/production/README.md). The production stack uses a managed PostgreSQL service and is separate from the local Minikube manifest.
+
 ## This workspace
 
 The local PostgreSQL cluster has been initialized under `data/postgres-runtime`, listening only on `127.0.0.1:55432`. The app’s separate restricted data/authentication database connections is in the private `.env` file. Two existing Coach feedback records were imported into the `pathao` organization.
@@ -40,7 +42,7 @@ Admins use **Team access** to create users with temporary passwords, assign role
 - Login verification has a separate database login/pool. The data role cannot read credential tables or call the functions that create sessions.
 - The app refuses database superusers, table owners, CREATEROLE/BYPASSRLS users, and memberships that can inherit elevated privileges.
 
-The curated product knowledge and screenshots remain shared application content bundled with the application. `public.coach_knowledge` is a read-only SQL mirror of all current knowledge records, including bilingual FAQs; authored TypeScript/OKF stays canonical. Successful generated questions and answers are stored in `public.coach_query_logs`, while full conversation snapshots, feedback, accounts, and uploaded documents use their existing isolated tables. Approval records a review decision; it never rewrites knowledge automatically.
+The curated product knowledge, bilingual FAQs, official tutorial summaries, and screenshots remain shared application content bundled with the application. The Library exposes the 14 reviewed videos from the [Pathao Commerce tutorial playlist](https://www.youtube.com/playlist?list=PLMN1y8VZcPd8) as source-linked walkthroughs. Related chat screenshots show the full official tutorial URL as selectable caption text. Mobile Share sends the clean PNG file with only that URL; desktop users get separate Copy image and Copy URL controls so macOS does not insert a temporary WebShare file path. Downloaded PNGs stay clean, and PDF exports keep the caption URL clickable. `public.coach_knowledge` is a read-only SQL mirror of all current knowledge records; authored TypeScript/OKF stays canonical. Successful generated questions and answers are stored in `public.coach_query_logs`, while full conversation snapshots, feedback, accounts, and uploaded documents use their existing isolated tables. Approval records a review decision; it never rewrites knowledge automatically.
 
 ## New installation with PostgreSQL
 
@@ -48,7 +50,7 @@ Requirements: Node.js 22.12+, npm, and PostgreSQL 17+ (local checks also passed 
 
 1. Copy `.env.example` to `.env`. Set `DATABASE_URL` to a new data login such as `coach_runtime`, and `AUTH_DATABASE_URL` to a different authentication login such as `coach_login`. Give each a different random URL-safe password of at least 20 characters. Set `APP_ORIGINS` to the exact frontend origins, including scheme and port.
 2. Provide `MIGRATION_DATABASE_URL` only to administrative commands. Its owner needs schema/role creation privileges. `npm run db:migrate` creates the schema, restricted data/authentication logins, grants, and RLS policies, then synchronizes the built-in knowledge mirror. Re-running is safe. After later knowledge edits, run `npm run db:sync-knowledge` to refresh the mirror without reapplying migrations.
-3. Create the first organization admin using a private password file:
+3. Create the first Pathao workspace admin using a private password file:
 
 ```sh
 npm run db:migrate
@@ -60,13 +62,15 @@ npm start
 
 Set `MIGRATION_DATABASE_URL` in the environment of the first two commands; keep it out of the web process. In this prepared workspace, local administrative configuration is in `data/admin.env`; use `DOTENV_CONFIG_PATH=data/admin.env npm run db:migrate` or the same prefix for other admin commands. That private file is excluded from the ZIP.
 
-There is no public registration or automatic organization joining. An organization admin provisions members; a database operator uses `admin:create` to provision another organization. Password reset is admin-mediated; email reset and MFA are not implemented. Google SSO is optional (setup below).
+There is no public registration or automatic workspace joining. A Pathao admin provisions members; a database operator uses `admin:create` to provision the first Pathao administrator. Password reset is admin-mediated; email reset and MFA are not implemented. Google SSO is optional (setup below).
+
+The sign-in screen is dedicated to the Pathao workspace, so users enter only their email and password. Password and Google authentication both resolve the `pathao` organization on the server.
 
 ## AI configuration
 
 Configure `OPENROUTER_API_KEY` and/or `GEMINI_API_KEY` in the server environment to enable chat answers, then restart the API. Keys stay off the frontend. All AI and retrieval endpoints require sign-in. Documentation browsing and feedback remain available without keys; chat shows an explicit error instead of a canned answer when generation is unavailable.
 
-The package includes the existing current 239-vector snapshot (125 knowledge passages and 114 screenshot vectors). Semantic retrieval requires an OpenRouter key and a current snapshot; otherwise it uses lexical retrieval.
+The package still includes the older 239-vector snapshot (125 knowledge passages and 114 screenshot vectors). It predates the current 252 knowledge records, including the FAQ and tutorial additions, so runtime rejects it by fingerprint and uses lexical retrieval until a new snapshot is built. Semantic retrieval requires an OpenRouter key and a current snapshot.
 
 ```sh
 npm run coach:eval

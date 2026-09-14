@@ -16,8 +16,8 @@ import {
 // ---------------------------------------------------------------------------
 // Tool Definitions (Gemini Function Declarations)
 // ---------------------------------------------------------------------------
-// The full knowledge base is in the system prompt, so these tools handle
-// structured operations: training modules, quiz questions, and domain listings.
+// Retrieval supplies the focused evidence; these tools fill gaps and support
+// structured training, quiz, domain, and screenshot operations.
 
 export const TOOL_DECLARATIONS: FunctionDeclaration[] = [
   {

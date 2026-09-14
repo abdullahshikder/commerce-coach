@@ -27,6 +27,9 @@ commerce_record:
     - layout
     - theme
     - publish store
+  tutorials:
+    - title: Create and publish an Online Store
+      url: https://www.youtube.com/watch?v=pnNK5kneHzY&list=PLMN1y8VZcPd8
   screenshots:
     - src: image30.jpg
       caption: Create an Online Store with a subdomain and warehouse.

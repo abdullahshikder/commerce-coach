@@ -15,6 +15,7 @@ import {
   reviewCoachFeedback,
   type CoachFeedbackRecord,
 } from './feedback';
+import { processMessageLLM, type ChatMessage, type ConversationState } from './responseEngine';
 
 const ISSUE_LABELS: Record<string, string> = {
   'wrong-answer': 'Wrong answer',
@@ -23,12 +24,23 @@ const ISSUE_LABELS: Record<string, string> = {
   other: 'Other',
 };
 
-export function CoachFeedbackReviewPanel({onDiscuss, disabled=false}: {onDiscuss?: (item: CoachFeedbackRecord)=>void; disabled?:boolean} = {}) {
+type DiscussionMessage = Pick<ChatMessage, 'role' | 'content'>;
+const freshState = (): ConversationState => ({ mode: 'normal', quizScore: { correct: 0, total: 0 }, quizHistory: [] });
+function discussionPrompt(item: CoachFeedbackRecord, followUp = '') {
+  return `Review this reported Pathao Commerce answer using the available documentation. Stay in the Learning correction workflow: do not claim to approve feedback or change knowledge. Return a concise corrected response for the merchant, in the merchant's language when apparent. Be precise about what was wrong and avoid unsupported claims.\n\nMerchant question: ${item.query}\nReported answer: ${item.answer}\nExisting suggested correction: ${item.suggestedAnswer || 'None'}${followUp ? `\n\nReviewer follow-up: ${followUp}` : ''}`;
+}
+
+export function CoachFeedbackReviewPanel({disabled=false}: {disabled?:boolean} = {}) {
   const { user } = useAuth();
   const isInternal = user.role === 'admin' || user.role === 'reviewer';
   const [items, setItems] = useState<CoachFeedbackRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [reviewingId, setReviewingId] = useState<string>();
+  const [activeDiscussionId, setActiveDiscussionId] = useState<string>();
+  const [discussingId, setDiscussingId] = useState<string>();
+  const [discussionMessages, setDiscussionMessages] = useState<DiscussionMessage[]>([]);
+  const [correction, setCorrection] = useState('');
+  const [followUp, setFollowUp] = useState('');
   const [error, setError] = useState('');
 
   const loadQueue = useCallback(async () => {
@@ -62,6 +74,29 @@ export function CoachFeedbackReviewPanel({onDiscuss, disabled=false}: {onDiscuss
     }
   };
 
+  const discuss = async (item: CoachFeedbackRecord, reviewerFollowUp = '') => {
+    setDiscussingId(item.id); setError('');
+    if (reviewerFollowUp) setDiscussionMessages(current => [...current, { role: 'user', content: reviewerFollowUp }]);
+    try {
+      const result = await processMessageLLM(discussionPrompt(item, reviewerFollowUp), freshState());
+      if (result.response.type === 'error') throw new Error(result.response.content);
+      setDiscussionMessages(current => [...current, { role: 'assistant', content: result.response.content }]);
+      setCorrection(result.response.content); setFollowUp('');
+    } catch { setError('The correction discussion could not be generated. Please try again.'); }
+    finally { setDiscussingId(undefined); }
+  };
+
+  const approveCorrection = async (item: CoachFeedbackRecord) => {
+    if (!correction.trim()) return;
+    setReviewingId(item.id); setError('');
+    try {
+      await reviewCoachFeedback(item.id, 'approved', undefined, correction);
+      setItems(current => current.filter(({ id }) => id !== item.id));
+      setDiscussingId(undefined); setActiveDiscussionId(undefined); setDiscussionMessages([]); setCorrection('');
+    } catch { setError('The correction could not be approved and saved.'); }
+    finally { setReviewingId(undefined); }
+  };
+
   if (!isInternal) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
@@ -71,24 +106,24 @@ export function CoachFeedbackReviewPanel({onDiscuss, disabled=false}: {onDiscuss
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-5 flex items-start justify-between gap-4">
+    <div className="feedback-review flex-1 overflow-y-auto">
+      <div className="feedback-review-content">
+        <div className="feedback-review-header">
           <div>
             <div className="flex items-center gap-2">
-              <Inbox size={19} className="text-violet-600" />
-              <h2 className="text-lg font-bold text-gray-900">Coach feedback review</h2>
+              <Inbox size={18} className="text-red-700" />
+              <h2>Coach feedback review</h2>
             </div>
-            <p className="mt-1 text-xs leading-5 text-gray-500">
-              Approve valid evidence or dismiss noise. Approval records the decision; workflow content
-              remains versioned and must pass regression checks before embeddings can be rebuilt.
+            <p>
+              Discuss a reported answer here, refine the proposed correction, then approve and save it.
+              Saved corrections are reviewer-approved context for matching future Coach answers.
             </p>
           </div>
           <button
             type="button"
             onClick={() => void loadQueue()}
             disabled={isLoading}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            className="review-refresh"
           >
             <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
             Refresh
@@ -96,7 +131,7 @@ export function CoachFeedbackReviewPanel({onDiscuss, disabled=false}: {onDiscuss
         </div>
 
         {error && items.length > 0 && (
-          <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">
+          <div role="alert" className="review-error">
             {error}
           </div>
         )}
@@ -109,81 +144,89 @@ export function CoachFeedbackReviewPanel({onDiscuss, disabled=false}: {onDiscuss
         ) : error && items.length === 0 ? (
           <EmptyState title="Feedback couldn’t be loaded" description="Try again to see reports waiting for review." action={<button type="button" onClick={()=>void loadQueue()}>Try again</button>}/>
         ) : items.length === 0 ? (
-          <EmptyState title="You’re all caught up" description="There are no answers waiting for review. Reports from your team will appear here."/>
+          <EmptyState
+            className="feedback-empty-state"
+            icon={<CheckCircle2 size={22}/>}
+            title="No reports waiting for review"
+            description="New reports appear here when a merchant marks a Coach answer as unhelpful."
+          />
         ) : (
-          <div className="space-y-4">
+          <div className="feedback-review-list">
             {items.map((item) => (
-              <article key={item.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-700">
+              <article key={item.id} className="feedback-review-item">
+                <div className="review-item-meta">
+                  <span className="review-issue">
                     {ISSUE_LABELS[item.issueType ?? 'other']}
                   </span>
                   {item.provider && (
-                    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-medium text-gray-500">
+                    <span>
                       {item.provider}
                     </span>
                   )}
                   {item.intentId && (
-                    <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-medium text-violet-700">
+                    <span>
                       {item.intentId}
                     </span>
                   )}
-                  <span className="ml-auto text-[10px] text-gray-400">
+                  <time>
                     {new Date(item.createdAt).toLocaleString()}
-                  </span>
+                  </time>
                 </div>
 
-                <div className="space-y-3 text-xs">
+                <div className="review-evidence">
                   <div>
-                    <div className="mb-1 font-semibold text-gray-500">Merchant question</div>
-                    <div className="rounded-lg bg-gray-50 px-3 py-2 leading-5 text-gray-800">{item.query}</div>
+                    <h3>Merchant question</h3>
+                    <p className="review-question">{item.query}</p>
                   </div>
                   <div>
-                    <div className="mb-1 font-semibold text-gray-500">Coach answered</div>
-                    <div className="max-h-28 overflow-y-auto rounded-lg border border-gray-100 px-3 py-2 leading-5 text-gray-600">
+                    <h3>Coach answered</h3>
+                    <p className="review-answer">
                       {item.answer}
-                    </div>
+                    </p>
                   </div>
                   {item.suggestedAnswer && (
                     <div>
-                      <div className="mb-1 font-semibold text-gray-500">Suggested correction</div>
-                      <div className="rounded-lg border border-violet-100 bg-violet-50 px-3 py-2 leading-5 text-violet-900">
+                      <h3>Suggested correction</h3>
+                      <p className="review-suggestion">
                         {item.suggestedAnswer}
-                      </div>
+                      </p>
                     </div>
                   )}
-                  <div className="flex gap-3 overflow-x-auto">{item.screenshotIds.filter(id=>screenshotUrl(id)).map(id=><img key={id} src={screenshotUrl(id)} alt="Screenshot included in the reported answer" className="w-64 shrink-0 rounded-lg border object-contain" loading="lazy"/>)}</div>
-                  <div className="grid gap-2 text-[10px] text-gray-500 sm:grid-cols-2">
-                    <div className="rounded-lg bg-gray-50 px-3 py-2">
+                  <div className="review-screenshots">{item.screenshotIds.filter(id=>screenshotUrl(id)).map(id=><img key={id} src={screenshotUrl(id)} alt="Screenshot included in the reported answer" loading="lazy"/>)}</div>
+                  <div className="review-details">
+                    <p>
                       Screens shown: {item.screenshotIds.length ? item.screenshotIds.join(', ') : 'none'}
-                    </div>
-                    <div className="rounded-lg bg-gray-50 px-3 py-2">
+                    </p>
+                    <p>
                       Retrieved: {item.retrievalDocumentIds.length ? item.retrievalDocumentIds.join(', ') : 'none'}
-                    </div>
+                    </p>
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-4">
-                  {onDiscuss&&<button type="button" disabled={disabled||Boolean(reviewingId)} onClick={()=>onDiscuss(item)} className="rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50">Discuss with Coach ↗</button>}
+                <div className="review-actions">
+                  <button type="button" disabled={disabled||Boolean(reviewingId)||Boolean(discussingId)} onClick={()=>{setActiveDiscussionId(item.id);setDiscussionMessages([]);setCorrection(item.suggestedAnswer || '');void discuss(item);}} className="review-discuss">Discuss correction</button>
                   <button
                     type="button"
                     onClick={() => void handleReview(item, 'dismissed')}
                     disabled={Boolean(reviewingId)}
-                    className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                    className="review-dismiss"
                   >
                     <XCircle size={13} />
                     Dismiss
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleReview(item, 'approved')}
-                    disabled={Boolean(reviewingId)}
-                    className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-                  >
-                    {reviewingId === item.id ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                    Approve evidence
-                  </button>
                 </div>
+                {activeDiscussionId===item.id&&(
+                  <section className="learning-correction" aria-label="Correction discussion">
+                    <h3>Correction discussion</h3>
+                    {discussionMessages.map((message,index)=><p key={index} className={message.role==='assistant'?'learning-correction-answer':'learning-correction-question'}>{message.content}</p>)}
+                    {discussingId===item.id&&<p role="status"><Loader2 size={14} className="animate-spin"/>Preparing a corrected response…</p>}
+                    <label htmlFor={`correction-${item.id}`}>Approved response</label>
+                    <textarea id={`correction-${item.id}`} value={correction} maxLength={4000} onChange={event=>setCorrection(event.target.value)} placeholder="Discuss the report to draft a corrected response." />
+                    <label htmlFor={`follow-up-${item.id}`}>Ask a follow-up</label>
+                    <div className="learning-correction-follow-up"><input id={`follow-up-${item.id}`} value={followUp} maxLength={1000} onChange={event=>setFollowUp(event.target.value)} placeholder="Ask Coach to refine the correction"/><button type="button" disabled={!followUp.trim()||Boolean(discussingId)||Boolean(reviewingId)} onClick={()=>void discuss(item,followUp.trim())}>Discuss</button></div>
+                    <div className="review-actions"><button type="button" className="review-approve" disabled={!correction.trim()||Boolean(discussingId)||Boolean(reviewingId)} onClick={()=>void approveCorrection(item)}>{reviewingId===item.id?<Loader2 size={13} className="animate-spin"/>:<CheckCircle2 size={13}/>}Approve &amp; save correction</button></div>
+                  </section>
+                )}
               </article>
             ))}
           </div>

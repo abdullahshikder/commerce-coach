@@ -18,7 +18,9 @@ export function clearSessionCookie(res: Response) { res.clearCookie(cookieName()
 export function sameOrigin(req: Request, res: Response, next: NextFunction) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) { next(); return; }
   // Explicit custom header plus JSON blocks cross-site form posts, including login CSRF.
-  if (req.headers['x-coach-request'] !== '1' || !req.is('application/json') || req.headers['sec-fetch-site'] === 'cross-site') {
+  // DELETE endpoints are bodyless; the custom header and session CSRF token still make them non-form-submitable.
+  const invalidContentType = req.method !== 'DELETE' && !req.is('application/json');
+  if (req.headers['x-coach-request'] !== '1' || invalidContentType || req.headers['sec-fetch-site'] === 'cross-site') {
     res.status(403).json({ error: 'Request origin could not be verified.' }); return;
   }
   const origin = req.headers.origin;

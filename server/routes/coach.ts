@@ -67,6 +67,29 @@ function readStringArray(value: unknown, maxItems: number): string[] | undefined
   return strings.every((item): item is string => Boolean(item)) ? strings : undefined;
 }
 
+async function retrieveApprovedCorrections(sessionHash: string, query: string) {
+  const terms = new Set(query.toLowerCase().match(/[\p{L}\p{N}\p{M}]+/gu) ?? []);
+  if (!terms.size) return [];
+  const rows = await withSession(sessionHash, async client => (await client.query(
+    `SELECT id, query, suggested_answer FROM public.coach_feedback
+      WHERE status='approved' AND suggested_answer<>'' ORDER BY updated_at DESC LIMIT 50`,
+  )).rows as { id: string; query: string; suggested_answer: string }[]);
+  return rows.flatMap(row => {
+    const text = `${row.query}\n${row.suggested_answer}`.toLowerCase();
+    const matched = [...terms].filter(term => text.includes(term)).length;
+    if (!matched) return [];
+    return [{
+      score: 1 + matched / terms.size,
+      document: {
+        id: `correction:${row.id}`,
+        kind: 'knowledge' as const,
+        text: `APPROVED LEARNING CORRECTION\nMerchant question: ${row.query}\nCorrect response: ${row.suggested_answer}`,
+        metadata: { source: 'Approved Learning correction', trust: 'human-reviewed', correction: 'approved' },
+      },
+    }];
+  }).slice(0, 4);
+}
+
 
 function isRateLimited(request: Request): boolean {
   const now = Date.now();
@@ -162,10 +185,16 @@ router.patch('/feedback/:id', requireRole('reviewer', 'admin'), asyncRoute(async
     response.status(400).json({ error: 'status must be approved or dismissed.' });
     return;
   }
+  const suggestedAnswer = readString(request.body?.suggestedAnswer, 4_000);
+  if (request.body?.suggestedAnswer !== undefined && !suggestedAnswer) {
+    response.status(400).json({ error: 'suggestedAnswer must be a non-empty response of up to 4,000 characters.' });
+    return;
+  }
   const feedback = await store(request, feedbackStore => feedbackStore.review(request.params.id, {
     status,
     reviewerId,
     ...(readString(request.body?.reviewNote, 2_000) ? { reviewNote: request.body.reviewNote.trim() } : {}),
+    ...(suggestedAnswer ? { suggestedAnswer } : {}),
   }));
   if (!feedback) {
     response.status(404).json({ error: 'Feedback not found.' });
@@ -201,7 +230,8 @@ router.post('/retrieve', asyncRoute(async (request: Request, response: Response)
     retrieval.retrieve(query, {kind: requestedKind as CoachRetrievalKind | undefined,limit: Number.isFinite(requestedLimit) ? requestedLimit : undefined}),
     requestedKind==='screenshot'?Promise.resolve([]):retrieveDocuments(request.sessionHash!,query,4),
   ]);
-  result.results=[...uploaded,...result.results].slice(0,12);
+  const corrections = requestedKind === 'screenshot' ? [] : await retrieveApprovedCorrections(request.sessionHash!, query);
+  result.results=[...corrections,...uploaded,...result.results].slice(0,12);
   response.json(result);
 }));
 

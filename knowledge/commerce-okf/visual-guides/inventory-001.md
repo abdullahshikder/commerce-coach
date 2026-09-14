@@ -23,6 +23,9 @@ commerce_record:
     - warehouse stock
     - variant stock
     - edit inventory
+  tutorials:
+    - title: Manage inventory and stock
+      url: https://www.youtube.com/watch?v=fpGiYW3a9Og&list=PLMN1y8VZcPd8
   screenshots:
     - src: image81.jpg
       caption: Open inventory from a product card.

@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../responseEngine';
 import { screenshotUrl } from '../screenshotAssets';
+import { responseImageText } from './responseImageText';
 
 // Use browser text shaping so Bengali conjuncts use the same local font as chat.
 export async function renderResponseImage(message: ChatMessage): Promise<Blob> {
@@ -29,12 +30,7 @@ export async function renderResponseImage(message: ChatMessage): Promise<Blob> {
     }
     result.push(line); return result;
   });
-  const plainAnswer = message.content.replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1').replace(/`(.+?)`/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '').replace(/^[-*]\s+/gm, '• ');
-  const lines = wrap(['Commerce Coach', message.metadata?.feature, '', plainAnswer,
-    '',
-    message.metadata?.confidence === 'low' && 'Needs confirmation'].filter(value => typeof value === 'string').join('\n'));
+  const lines = wrap(responseImageText(message));
   const images = await Promise.all((message.metadata?.screenshots ?? []).map(async screenshot => {
     const img = new Image();
     const src = screenshotUrl(screenshot.src);

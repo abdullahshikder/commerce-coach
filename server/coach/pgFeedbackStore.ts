@@ -34,8 +34,9 @@ export class PgFeedbackStore {
   }
   async review(id: string, input: ReviewCoachFeedbackInput) {
     if (!/^[a-f0-9-]{36}$/i.test(id)) return undefined;
-    const result = await this.client.query(`UPDATE public.coach_feedback SET status=$1,reviewer_id=$2,review_note=$3,updated_at=now()
-      WHERE id=$4 AND status='pending' RETURNING *`, [input.status,this.actor.id,input.reviewNote || '',id]);
+    const result = await this.client.query(`UPDATE public.coach_feedback
+      SET status=$1,reviewer_id=$2,review_note=$3,suggested_answer=COALESCE($4,suggested_answer),updated_at=now()
+      WHERE id=$5 AND status='pending' RETURNING *`, [input.status,this.actor.id,input.reviewNote || '',input.suggestedAnswer || null,id]);
     return result.rows[0] ? map(result.rows[0]) : undefined;
   }
 }

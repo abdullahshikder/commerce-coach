@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { authPool, withSession } from '../db';
 import { digest, randomToken, hashPassword, verifyPassword, dummyHash, validPassword } from './password';
 import { asyncRoute, requireAuth, requireReady, requireRole, setSessionCookie, clearSessionCookie } from './middleware';
+import { WORKSPACE_ORGANIZATION_SLUG } from './workspace';
 export const authRoutes = Router();
 authRoutes.use('/google', createGoogleRouter());
 let passwordWork = 0;
@@ -21,19 +22,19 @@ const passwordBudget: RequestHandler = (req, res, next) => {
   next();
 };
 authRoutes.post('/login', asyncRoute(async (req, res) => {
-  const { organization, email, password } = req.body || {};
-  if (typeof organization !== 'string' || organization.length > 80 || typeof email !== 'string' || email.length > 254 || typeof password !== 'string' || Buffer.byteLength(password) > 256) {
-    res.status(400).json({ error: 'Organization, email, and password are required.' }); return;
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || email.length > 254 || typeof password !== 'string' || Buffer.byteLength(password) > 256) {
+    res.status(400).json({ error: 'Email and password are required.' }); return;
   }
   const ipAllowed=await takeBudget(`login-ip:${req.ip}`,20,900);
   if(!ipAllowed){res.status(429).json({error:'Too many sign-in attempts. Try again later.'});return;}
-  const accountAllowed=await takeBudget(`login-account:${organization.trim().toLowerCase()}:${email.trim().toLowerCase()}`,20,900);
+  const accountAllowed=await takeBudget(`login-account:${WORKSPACE_ORGANIZATION_SLUG}:${email.trim().toLowerCase()}`,20,900);
   if(!accountAllowed||passwordWork>=4){res.status(429).json({error:'Too many sign-in attempts. Try again later.'});return;}
   passwordWork++;
   try {
-    const found = (await authPool.query('SELECT * FROM public.coach_login_lookup($1,$2)', [organization.trim().toLowerCase(), email.trim().toLowerCase()])).rows[0];
+    const found = (await authPool.query('SELECT * FROM public.coach_login_lookup($1,$2)', [WORKSPACE_ORGANIZATION_SLUG, email.trim().toLowerCase()])).rows[0];
     const matches = await verifyPassword(password, found?.password_hash || dummyHash);
-    if (!found || !matches) { res.status(401).json({ error: 'Invalid organization, email, or password.' }); return; }
+    if (!found || !matches) { res.status(401).json({ error: 'Invalid email or password.' }); return; }
     const token = randomToken();
     const created = await authPool.query('SELECT public.coach_open_session($1,$2,$3,$4) AS ok', [found.id, found.password_hash, digest(token), randomToken()]);
     if (!created.rows[0].ok) { res.status(401).json({ error: 'Please sign in again.' }); return; }

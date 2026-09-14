@@ -12,7 +12,7 @@ export async function migrate() {
   try {
     await client.query('BEGIN');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('commerce-coach-migrate'))");
-    for (const file of ['001_security.sql', '002_google_sso.sql', '003_conversations.sql', '004_hardening.sql', '005_documents.sql', '006_okf.sql', '007_production.sql', '008_knowledge_queries.sql', '009_analytics.sql']) {
+    for (const file of ['001_security.sql', '002_google_sso.sql', '003_conversations.sql', '004_hardening.sql', '005_documents.sql', '006_okf.sql', '007_production.sql', '008_knowledge_queries.sql', '009_analytics.sql', '010_analytics_insights.sql', '011_feedback_corrections.sql', '012_token_usage_analytics.sql']) {
       await client.query(await readFile(new URL(`./migrations/${file}`, import.meta.url), 'utf8'));
     }
     await syncKnowledgeMirror(client);

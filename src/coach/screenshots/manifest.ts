@@ -18,6 +18,12 @@ export interface Screenshot {
   step?: number;
   featureId?: string;
   feature?: string;
+  tutorials?: TutorialLink[];
+}
+
+export interface TutorialLink {
+  title: string;
+  url: string;
 }
 
 export interface ScreenshotSet {
@@ -25,6 +31,7 @@ export interface ScreenshotSet {
   feature: string;
   keywords: string[];
   screenshots: Screenshot[];
+  tutorials?: TutorialLink[];
 }
 
 export interface ScreenshotSearchOptions {
@@ -45,12 +52,17 @@ function requireWorkflow(id: string) {
 
 const instantCheckoutOrderWorkflow = requireWorkflow('find-instant-checkout-order');
 const adCatalogueWorkflow = requireWorkflow('create-ad-catalogue');
+const tutorial = (videoId: string, title: string): TutorialLink => ({
+  title,
+  url: `https://www.youtube.com/watch?v=${videoId}&list=PLMN1y8VZcPd8`,
+});
 
 export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
   {
     featureId: 'signup-001',
     feature: 'Direct signup',
     keywords: ['signup', 'register', 'create account', 'independent merchant', 'otp verification', 'dashboard'],
+    tutorials: [tutorial('weYyy08MafM', 'Sign up for Pathao Commerce')],
     screenshots: [
       { src: 'image89.jpg', caption: 'Choose independent, Courier, or Google signup.', step: 1 },
       { src: 'image90.jpg', caption: 'Enter merchant information for independent signup.', step: 2 },
@@ -62,6 +74,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'signup-002',
     feature: 'Courier account signup',
     keywords: ['courier login', 'existing courier account', 'store import', 'warehouse address', 'account linking'],
+    tutorials: [tutorial('weYyy08MafM', 'Sign up for Pathao Commerce')],
     screenshots: [
       { src: 'image92.jpg', caption: 'Sign up or log in with a Pathao Courier account.', step: 1 },
       { src: 'image88.jpg', caption: 'Import an existing Courier store as a Commerce warehouse.', step: 2 },
@@ -72,6 +85,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'signup-003',
     feature: 'Google signup',
     keywords: ['google authentication', 'google oauth', 'sign in with google', 'google account'],
+    tutorials: [tutorial('weYyy08MafM', 'Sign up for Pathao Commerce')],
     screenshots: [
       { src: 'image98.jpg', caption: 'Authenticate with Google to continue signup.', step: 1 },
     ],
@@ -80,6 +94,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'warehouse-001',
     feature: 'Warehouse setup',
     keywords: ['warehouse', 'create warehouse', 'address', 'contact details', 'approval', 'warehouse list'],
+    tutorials: [tutorial('I95Sd5MCVD8', 'Create and select a warehouse')],
     screenshots: [
       { src: 'image96.jpg', caption: 'Enter the warehouse contact and address details.', step: 1 },
       { src: 'image103.jpg', caption: 'Review created warehouses and their approval status.', step: 2 },
@@ -89,6 +104,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'product-001',
     feature: 'Product creation and variants',
     keywords: ['product', 'catalog', 'create product', 'variant', 'attribute', 'sku'],
+    tutorials: [tutorial('2fwaZhpNOZk', 'Create a single product and variants')],
     screenshots: [
       { src: 'image100.jpg', caption: 'Create a single product from Products.', step: 1 },
       { src: 'image102.jpg', caption: 'Add product variant attributes and values.', step: 2 },
@@ -100,6 +116,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'bulk-001',
     feature: 'Bulk product upload',
     keywords: ['bulk upload', 'csv', 'xlsx', 'spreadsheet', 'column mapping', 'validation', 'import products'],
+    tutorials: [tutorial('jq5rHfRStjs', 'Bulk upload products with CSV')],
     screenshots: [
       { src: 'image107.jpg', caption: 'Choose CSV, XLSX, or Daraz import and select a warehouse.', step: 1 },
       { src: 'image108.jpg', caption: 'Upload the bulk product file.', step: 2 },
@@ -112,6 +129,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'daraz-001',
     feature: 'Daraz product import',
     keywords: ['daraz import', 'connect daraz', 'fetch products', 'category mapping', 'validation'],
+    tutorials: [tutorial('lngsxYOaWDY', 'Connect Daraz and import products')],
     screenshots: [
       { src: 'image112.jpg', caption: 'Start a Daraz import when the account is not connected.', step: 1 },
       { src: 'image75.jpg', caption: 'Start a Daraz import after connecting the account.', step: 2 },
@@ -125,6 +143,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'inventory-001',
     feature: 'Inventory management',
     keywords: ['inventory', 'stock', 'warehouse stock', 'variant stock', 'edit inventory'],
+    tutorials: [tutorial('fpGiYW3a9Og', 'Manage inventory and stock')],
     screenshots: [
       { src: 'image81.jpg', caption: 'Open inventory from a product card.', step: 1 },
       { src: 'image82.jpg', caption: 'Review warehouse and variant stock in the inventory sheet.', step: 2 },
@@ -135,6 +154,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'channels-001',
     feature: 'Publish to Pathao Shop',
     keywords: ['pathao shop', 'publish product', 'bulk publish', 'category mapping', 'sales channel'],
+    tutorials: [tutorial('-Gup_tswNK8', 'Publish products to Pathao Shop')],
     screenshots: [
       { src: 'image85.jpg', caption: 'Bulk publish selected products to Pathao Shop.', step: 1 },
       { src: 'image86.jpg', caption: 'Map product categories in the Pathao Shop publish dialog.', step: 2 },
@@ -165,6 +185,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'checkout-001',
     feature: 'Instant Checkout links',
     keywords: ['instant checkout', 'checkout link', 'share link', 'multiple products', 'custom product', 'add to cart'],
+    tutorials: [tutorial('FqyB81niqsQ', 'Create and share an Instant Checkout link')],
     screenshots: [
       { src: 'image21.jpg', caption: 'Choose Instant Checkout from the header, product card, or chat.', step: 1 },
       { src: 'image10.png', caption: 'Generate a checkout link for one product.', step: 2 },
@@ -201,6 +222,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'delivery-002',
     feature: 'Instant Delivery orders',
     keywords: ['instant delivery order', 'create order', 'receiver pays', 'sender pays', 'pod', 'collection', 'order status'],
+    tutorials: [tutorial('RTYd4bdKMxk', 'Create an Instant Delivery order')],
     screenshots: [
       { src: 'image43.jpg', caption: 'Return to business information after skipping the setup form.', step: 1 },
       { src: 'image44.jpg', caption: 'Create an Instant Delivery order.', step: 2 },
@@ -225,6 +247,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'store-001',
     feature: 'Online Store setup',
     keywords: ['online store', 'create store', 'subdomain', 'branding', 'layout', 'theme', 'publish store'],
+    tutorials: [tutorial('pnNK5kneHzY', 'Create and publish an Online Store')],
     screenshots: [
       { src: 'image30.jpg', caption: 'Create an Online Store with a subdomain and warehouse.', step: 1 },
       { src: 'image31.jpg', caption: 'Open Manage Website after creating the store.', step: 2 },
@@ -238,6 +261,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'store-analytics',
     feature: 'Online Store Pixel and tracking',
     keywords: ['meta pixel', 'conversion api', 'analytics account', 'pixel id', 'tracking'],
+    tutorials: [tutorial('pnNK5kneHzY', 'Create and publish an Online Store')],
     screenshots: [
       { src: 'image25.jpg', caption: 'Configure a Pixel and Conversion API analytics account.', step: 1 },
     ],
@@ -246,6 +270,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'catalogue-001',
     feature: 'Online Store ad catalogue',
     keywords: adCatalogueWorkflow.keywords,
+    tutorials: [tutorial('pnNK5kneHzY', 'Create and publish an Online Store')],
     screenshots: [
       { src: 'image30.jpg', caption: 'Open Online Stores and click Manage on the store you want to use.', step: 1 },
       { src: 'image31.jpg', caption: 'On the store Edit page, select the Ad Catalogues tab.', step: 2 },
@@ -257,6 +282,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'chats-001',
     feature: 'Chats and unified inbox',
     keywords: ['chats', 'unified inbox', 'connect channel', 'create customer', 'create order', 'conversation'],
+    tutorials: [tutorial('mWQHsZh2rwk', 'Connect Instagram')],
     screenshots: [
       { src: 'image70.jpg', caption: 'View the Chats empty state before connecting a channel.', step: 1 },
       { src: 'image71.jpg', caption: 'Use the unified inbox after connecting a channel.', step: 2 },
@@ -307,6 +333,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'addons-facebook',
     feature: 'Facebook connection',
     keywords: ['facebook', 'meta', 'business portfolio', 'facebook page', 'permissions', 'connect channel'],
+    tutorials: [tutorial('okLbyhWQBdc', 'Connect Facebook')],
     screenshots: [
       { src: 'image61.jpg', caption: 'Continue the Facebook connection after Meta authentication.', step: 1 },
       { src: 'image62.jpg', caption: 'Select the Facebook page and business.', step: 2 },
@@ -318,6 +345,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'addons-whatsapp-quick',
     feature: 'WhatsApp Quick Connect',
     keywords: ['whatsapp', 'quick connect', 'meta', 'business portfolio', 'phone number', 'qr code', 'timezone'],
+    tutorials: [tutorial('zUYW9WlcDtQ', 'Connect WhatsApp')],
     screenshots: [
       { src: 'image64.png', caption: 'Start Quick Connect with a WhatsApp Business Account.', step: 1 },
       { src: 'image36.png', caption: 'Continue the WhatsApp connection after Meta authentication.', step: 2 },
@@ -344,6 +372,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'addons-daraz',
     feature: 'Daraz connection',
     keywords: ['daraz', 'connect daraz', 'warehouse', 'asc login', 'channel connection'],
+    tutorials: [tutorial('lngsxYOaWDY', 'Connect Daraz and import products')],
     screenshots: [
       { src: 'image54.jpg', caption: 'Choose a warehouse for the Daraz connection.', step: 1 },
       { src: 'image93.jpg', caption: 'Log in to Daraz ASC and return to Commerce.', step: 2 },
@@ -354,6 +383,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'finance-001',
     feature: 'Finance and payout methods',
     keywords: ['finance', 'payout method', 'payment', 'invoice', 'download invoice', 'report issue'],
+    tutorials: [tutorial('VtY7tRxHQwk', 'Manage payments, payouts, and invoices')],
     screenshots: [
       { src: 'image3.png', caption: 'Open payout methods from Finance settings.', step: 1 },
       { src: 'image74.png', caption: 'Add a payout method.', step: 2 },
@@ -366,6 +396,7 @@ export const SCREENSHOT_REGISTRY: ScreenshotSet[] = [
     featureId: 'media-001',
     feature: 'Media Gallery',
     keywords: ['media gallery', 'image library', 'crop image', 'link product', 'cdn link', 'reuse image'],
+    tutorials: [tutorial('2fwaZhpNOZk', 'Create a single product and variants')],
     screenshots: [
       { src: 'image101.jpg', caption: 'Browse the Media Gallery image library.', step: 1 },
       { src: 'image104.jpg', caption: 'Crop an image, link it to a product, or copy its CDN URL.', step: 2 },
@@ -463,8 +494,19 @@ export const SCREENSHOT_INDEX: Screenshot[] = SCREENSHOT_REGISTRY.flatMap((set) 
     ...screenshot,
     featureId: set.featureId,
     feature: set.feature,
+    tutorials: set.tutorials,
   })),
 );
+
+export function getScreenshotTutorials(screenshots: readonly Screenshot[]): TutorialLink[] {
+  // Older saved conversations contain only the screenshot source, so recover current metadata from the registry.
+  const links = screenshots.flatMap((screenshot) =>
+    screenshot.tutorials
+      ?? SCREENSHOT_INDEX.find((reference) => reference.src === screenshot.src)?.tutorials
+      ?? [],
+  );
+  return [...new Map(links.map((link) => [link.url, link] as const)).values()];
+}
 
 export function getScreenshots(featureId: string): Screenshot[] {
   return SCREENSHOT_INDEX.filter((screenshot) => screenshot.featureId === featureId);
@@ -592,6 +634,6 @@ export function searchScreenshots(
 
 export function getScreenshotReferencePrompt(): string {
   return SCREENSHOT_REGISTRY.map((set) =>
-    `- ${set.featureId}: ${set.feature}. Search terms: ${set.keywords.join(', ')}.`,
+    `- ${set.featureId}: ${set.feature}. Search terms: ${set.keywords.join(', ')}.${set.tutorials?.length ? ` Official tutorial: ${set.tutorials.map(({ title, url }) => `${title} (${url})`).join(', ')}.` : ''}`,
   ).join('\n');
 }

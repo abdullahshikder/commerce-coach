@@ -38,3 +38,15 @@ Restore changed files from `/tmp/coach-care-before` after comparing for subseque
 **Revert to:** the application and migration list before migration 009.
 **Restore:** remove the Analytics navigation/page, `/api/analytics` route, generation-failure recording calls, and migration-009 entry, then deploy the prior application. Leave the private anonymous analytics fact tables and capture triggers in place until their retained counts have been backed up or formally expired; they contain no query or answer text.
 **Re-check after rollback:** verify admin Operations and Team access, member Coach generation, feedback submission/review, and that admins still cannot read `public.coach_query_logs` or any `coach_private` table.
+
+## Analytics insights expansion — rollback
+
+**Revert to:** the application and migration list before migration 010.
+**Restore:** remove migration 010 and restore the prior Analytics panel/CSS. Reapply migration 009 to restore the earlier `coach_admin_analytics` return shape; keep all anonymous analytics fact tables and rows.
+**Re-check after rollback:** run the 7/30/90-day admin API views, confirm aggregate-only RBAC/RLS behavior, and rebuild the frontend before reopening Analytics.
+
+## Official tutorial integration — rollback
+
+**Revert to:** the knowledge and screenshot registry before the 14-video Pathao Commerce playlist import.
+**Restore:** remove `src/coach/tutorialVideos.ts`, its `KNOWLEDGE_BASE` registration, screenshot tutorial mappings, tutorial links in chat/export components, and the `tutorials` OKF category; restore the earlier mirror-count assertions and regenerate the OKF bundle. Run `npm run db:sync-knowledge` so retired tutorial records become inactive rather than deleting database rows.
+**Re-check after rollback:** run `npm run verify`, confirm screenshot galleries and PNG/PDF exports work without tutorial-caption metadata, and verify the SQL mirror has 113 active FAQs and 125 active product-knowledge records.

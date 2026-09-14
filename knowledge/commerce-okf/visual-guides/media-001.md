@@ -25,6 +25,9 @@ commerce_record:
     - link product
     - cdn link
     - reuse image
+  tutorials:
+    - title: Create a single product and variants
+      url: https://www.youtube.com/watch?v=2fwaZhpNOZk&list=PLMN1y8VZcPd8
   screenshots:
     - src: image101.jpg
       caption: Browse the Media Gallery image library.

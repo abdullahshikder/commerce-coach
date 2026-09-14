@@ -25,6 +25,9 @@ commerce_record:
     - contact details
     - approval
     - warehouse list
+  tutorials:
+    - title: Create and select a warehouse
+      url: https://www.youtube.com/watch?v=I95Sd5MCVD8&list=PLMN1y8VZcPd8
   screenshots:
     - src: image96.jpg
       caption: Enter the warehouse contact and address details.

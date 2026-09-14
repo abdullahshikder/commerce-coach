@@ -27,6 +27,7 @@ export interface ReviewCoachFeedbackInput {
   status: 'approved' | 'dismissed';
   reviewerId: string;
   reviewNote?: string;
+  suggestedAnswer?: string;
 }
 
 export interface CoachFeedbackRecord extends SaveCoachFeedbackInput {
@@ -187,9 +188,10 @@ export class CoachFeedbackStore {
   review(id: string, input: ReviewCoachFeedbackInput): CoachFeedbackRecord | undefined {
     this.database.prepare(`
       UPDATE coach_feedback
-      SET status = ?, reviewer_id = ?, review_note = ?, updated_at = datetime('now')
+      SET status = ?, reviewer_id = ?, review_note = ?,
+          suggested_answer = COALESCE(?, suggested_answer), updated_at = datetime('now')
       WHERE id = ? AND status = 'pending'
-    `).run(input.status, input.reviewerId, input.reviewNote ?? '', id);
+    `).run(input.status, input.reviewerId, input.reviewNote ?? '', input.suggestedAnswer ?? null, id);
 
     const row = this.database.prepare(
       'SELECT * FROM coach_feedback WHERE id = ?',

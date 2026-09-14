@@ -2,6 +2,9 @@ import './secrets';
 import { Pool, type PoolClient } from 'pg';
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
 export const authPool = new Pool({ connectionString: process.env.AUTH_DATABASE_URL, max: 4, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
+export async function checkDatabaseConnections() {
+  await Promise.all([pool.query('SELECT 1'), authPool.query('SELECT 1')]);
+}
 export async function checkDatabase() {
   if (!process.env.DATABASE_URL || !process.env.AUTH_DATABASE_URL) throw new Error('DATABASE_URL is required. Run db:migrate with MIGRATION_DATABASE_URL first.');
   const { rows } = await pool.query(`SELECT r.rolsuper,r.rolbypassrls,r.rolcreaterole,
@@ -26,6 +29,19 @@ export async function checkDatabase() {
     EXISTS(SELECT FROM pg_roles r WHERE (r.rolsuper OR r.rolbypassrls OR r.rolcreaterole) AND pg_has_role(current_user,r.oid,'MEMBER')) AS elevated,
     pg_has_role(current_user,(SELECT relowner FROM pg_class WHERE oid='public.coach_feedback'::regclass),'MEMBER') AS owns_table`)).rows[0];
   if (!auth.auth_member || auth.app_member || auth.elevated || auth.owns_table) throw new Error('Unsafe authentication database role.');
+}
+export async function waitForDatabase(timeoutMs = Number(process.env.STARTUP_DATABASE_TIMEOUT_MS || 120000)) {
+  const deadline = Date.now() + Math.max(1000, timeoutMs);
+  let delayMs = 500;
+  for (;;) {
+    try { await checkDatabase(); return; }
+    catch (error) {
+      if (Date.now() >= deadline) throw error;
+      console.error(JSON.stringify({ event: 'database_startup_retry', delayMs }));
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      delayMs = Math.min(delayMs * 2, 5000);
+    }
+  }
 }
 export async function withSession<T>(sessionHash: string, action: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();

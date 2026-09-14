@@ -1,6 +1,7 @@
 import type { ScreenContext } from './screenContext';
 import { ResponseExport } from './ResponseExport';
 import { screenshotUrl } from './screenshotAssets';
+import { getScreenshotTutorials } from './screenshots/manifest';
 import { useState, useRef, useEffect } from 'react';
 import { X, Bot, Send, BookOpen, Sparkles, AlertTriangle, HelpCircle, ChevronRight, RotateCcw } from 'lucide-react';
 import { getThemeColor, getThemeLightColor, getThemeBorderColor, getThemeHoverColor } from '../utils/themeColors';
@@ -51,6 +52,7 @@ function TypingIndicator() {
 
 function MessageBubble(props: { message: ChatMessage; themeColor: string; query?: string; key?: string }) {
   const { message, themeColor, query } = props;
+  const tutorialLinks = getScreenshotTutorials(message.metadata?.screenshots ?? []);
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
   const isKnowledge = message.type === 'knowledge';
@@ -103,6 +105,11 @@ function MessageBubble(props: { message: ChatMessage; themeColor: string; query?
                   />
                 </div>
               ))}
+            </div>
+          )}
+          {tutorialLinks.length > 0 && (
+            <div className="mt-1.5 flex flex-col gap-1">
+              {tutorialLinks.map((link) => <p key={link.url} className="text-[9px] text-gray-500">Video caption: {link.title}. <a href={link.url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-600 hover:underline">{link.url} ↗</a></p>)}
             </div>
           )}
           {message.metadata.source && (

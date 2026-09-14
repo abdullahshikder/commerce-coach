@@ -23,6 +23,9 @@ commerce_record:
     - warehouse
     - asc login
     - channel connection
+  tutorials:
+    - title: Connect Daraz and import products
+      url: https://www.youtube.com/watch?v=lngsxYOaWDY&list=PLMN1y8VZcPd8
   screenshots:
     - src: image54.jpg
       caption: Choose a warehouse for the Daraz connection.

@@ -1,5 +1,6 @@
 import { getScreenshotReferencePrompt } from './screenshots/manifest';
 import { MERCHANT_FAQ_ITEMS } from './merchantFaq';
+import { TUTORIAL_VIDEO_ITEMS } from './tutorialVideos';
 import {
   ORDER_SOURCE_RULES,
   findCoachWorkflow,
@@ -1889,16 +1890,25 @@ const PRODUCT_MEMO_KNOWLEDGE_BASE: KnowledgeItem[] = [
     domain: 'integrations',
     keywords: ['meta pixel', 'facebook pixel', 'tracking pixel', 'ad tracking', 'conversion tracking'],
     question: 'Can I set up Meta Pixel tracking?',
-    answer: 'Yes. Navigate to Add-ons → Pixel Tracking. Enter your Meta Pixel ID. The pixel is automatically installed on your Online Store to track page views, add-to-cart events, and purchases. This enables Facebook/Instagram ad retargeting and conversion tracking.',
+    answer: 'Set it up from the specific Online Store, not Add-ons. Go to Online Stores, open the store, and choose Edit. In the Analytics Account section, click Add new, choose the appropriate analytics type, and paste the Meta Pixel ID — not the full Meta Pixel JavaScript code. You can also enter the Pixel Conversion API Key if you use Conversion API. Set the account to Active, save it, select it for the store if prompted, and click Save Changes. Verify the received events in Meta Events Manager before using the data for campaigns.',
     howItWorks: [
-      'Go to Add-ons → Pixel Tracking.',
-      'Enter Meta Pixel ID.',
-      'Pixel auto-installed on Online Store.',
-      'Tracks: page views, add-to-cart, purchases.',
-      'Enables ad retargeting and conversion tracking.',
+      'Go to Online Stores and open the store you want to track.',
+      'Click Edit and find the Analytics Account section.',
+      'Click Add new and choose the appropriate analytics type.',
+      'Paste the Meta Pixel ID only; do not paste the full JavaScript pixel code.',
+      'Optionally add the Pixel Conversion API Key, set Status to Active, and save.',
+      'Select the saved analytics account for the store if prompted, then click Save Changes.',
+      'Confirm event receipt in Meta Events Manager before relying on campaign reporting.',
     ],
+    translations: {
+      bn: {
+        question: 'Meta Pixel tracking সেট আপ করব কীভাবে?',
+        answer: 'Add-ons থেকে নয়, যে Online Store-এ pixel বসাবেন সেটি থেকেই সেটআপ করুন। Online Stores থেকে স্টোরটি খুলে Edit করুন। Analytics Account সেকশনে Add new চাপুন, সঠিক analytics type নির্বাচন করুন এবং Meta Pixel-এর শুধু Pixel ID দিন—পুরো JavaScript pixel code নয়। Conversion API ব্যবহার করলে Pixel Conversion API Key-ও দিতে পারেন। Status Active রেখে Save করুন, প্রয়োজন হলে স্টোরের জন্য account-টি নির্বাচন করে Save Changes চাপুন। Campaign চালানোর আগে Meta Events Manager-এ event আসছে কি না যাচাই করুন।',
+      },
+    },
+    screenshotIds: ['store-analytics'],
     status: 'live',
-    source: 'Product Memo §7.12',
+    source: 'Product screenshot: Online Stores → Edit → Analytics Account',
   },
   {
     id: 'product-010',
@@ -2340,6 +2350,8 @@ const PRODUCT_MEMO_KNOWLEDGE_BASE: KnowledgeItem[] = [
 export const KNOWLEDGE_BASE: KnowledgeItem[] = [
   // The supplied customer-facing FAQ wording must precede legacy records when topics overlap.
   ...MERCHANT_FAQ_ITEMS,
+  // Official video tutorials add source-linked, task-focused walkthroughs before legacy memo records.
+  ...TUTORIAL_VIDEO_ITEMS,
   ...PRODUCT_MEMO_KNOWLEDGE_BASE,
 ];
 

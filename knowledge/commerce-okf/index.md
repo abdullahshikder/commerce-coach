@@ -4,6 +4,7 @@ okf_version: '0.2'
 # Commerce Coach knowledge
 
 - [faqs](faqs/index.md)
+- [tutorials](tutorials/index.md)
 - [knowledge](knowledge/index.md)
 - [workflows](workflows/index.md)
 - [training](training/index.md)

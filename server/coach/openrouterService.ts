@@ -1,10 +1,11 @@
 import { freshScreenContext, screenContextPrompt, type ScreenContext } from '../../src/coach/screenContext';
-import {providerUsage} from '../observability';
+import { recordTokenUsage } from './tokenUsage';
 import { withTransientProviderRetry } from './providerRetry';
 import { ANSWER_TOOL_DECLARATIONS, executeTool, type ToolResult } from '../../src/coach/llmTools';
 import { COACH_SYSTEM_PROMPT as SYSTEM_PROMPT } from './systemPrompt';
 import { reviewCoachAnswer } from './answerReview';
 import { understandRequest, understandingContext, type GenerateJSON, type UnderstoodRequest } from './requestUnderstanding';
+import { MODEL_BUDGET, recentConversation, structuredModelPhase, structuredOutputBudget, type ModelPhase } from './modelBudget';
 import type { ChatMessage, ConversationState } from '../../src/coach/responseEngine';
 
 // ---------------------------------------------------------------------------
@@ -73,7 +74,7 @@ function buildMessages(
       : SYSTEM_PROMPT,
   });
 
-  const recentMessages = messages.slice(-30);
+  const recentMessages = recentConversation(messages);
   for (const msg of recentMessages) {
     if (msg.role === 'user') {
       result.push({ role: 'user', content: msg.content });
@@ -94,6 +95,8 @@ async function callOpenRouter(
   messages: ORMessage[],
   tools?: { type: 'function'; function: { name: string; description: string; parameters: unknown } }[],
   json: boolean | Record<string, unknown> = false,
+  maxTokens: number = json ? MODEL_BUDGET.answerReviewOutputTokens : MODEL_BUDGET.generationOutputTokens,
+  phase: ModelPhase = 'generation',
 ): Promise<unknown> {
   const result = await withTransientProviderRetry(async () => {
     const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
@@ -113,7 +116,7 @@ async function callOpenRouter(
         ...(json ? { response_format: typeof json === 'object'
           ? { type: 'json_schema', json_schema: { name: 'coach_structured_response', strict: true, schema: json } }
           : { type: 'json_object' } } : {}),
-        max_tokens: json ? 4096 : 2048,
+        max_tokens: maxTokens,
       }),
     });
 
@@ -121,7 +124,7 @@ async function callOpenRouter(
     return response.json();
   });
 
-  providerUsage('openrouter',{inputTokens:result.usage?.prompt_tokens,outputTokens:result.usage?.completion_tokens,costUsd:result.usage?.cost});
+  await recordTokenUsage('openrouter',{phase,inputTokens:result.usage?.prompt_tokens,outputTokens:result.usage?.completion_tokens,costUsd:result.usage?.cost});
   return result;
 }
 
@@ -129,7 +132,7 @@ const generateJSON: GenerateJSON = async (instructions, input, schema) => {
   const response = await callOpenRouter([
     { role: 'system', content: instructions },
     { role: 'user', content: JSON.stringify(input) },
-  ], undefined, schema ?? true) as { choices?: { message?: { content?: string } }[] };
+  ], undefined, schema ?? true, structuredOutputBudget(instructions), structuredModelPhase(instructions)) as { choices?: { message?: { content?: string } }[] };
   return response.choices?.[0]?.message?.content ?? '';
 };
 
@@ -250,7 +253,7 @@ export async function generateOpenRouterResponse(
     const understood = await understandRequest(messages, generateJSON, screenContext);
     const chatMessages = buildMessages(messages, retrievalContext);
     chatMessages[0].content += understandingContext(understood);
-    return await processWithTools(chatMessages, understood, retrievalContext, 5, screenContext);
+    return await processWithTools(chatMessages, understood, retrievalContext, 3, screenContext);
   } catch (error) {
     console.error(JSON.stringify({event:'provider_error',provider:'openrouter'}));
     throw error;
