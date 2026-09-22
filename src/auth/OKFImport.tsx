@@ -17,7 +17,7 @@ export function OKFImport({disabled,onImported}:{disabled:boolean;onImported:()=
    }
   }
   if(failedImages.length)setError(`Concepts were imported, but ${failedImages.length} images failed: ${failedImages.slice(0,5).join(', ')}. Add them from Preview & review.`);
-  setMessage(`Imported ${result.ids.length} concepts and ${attached} images. ${result.skipped.length} existing or duplicate files skipped. ${result.reserved.length} index/log files excluded. Drafts process in the background. Preview, review, and publish them before use in answers.`);setFiles([]);if(fileInput.current)fileInput.current.value='';if(folderInput.current)folderInput.current.value='';await onImported();
+  setMessage(`Imported ${result.ids.length} concepts and ${attached} images. ${result.skipped.length} existing or duplicate files skipped. ${result.reserved.length} index/log files excluded. Preview and save each draft’s embeddings before submitting it for review.`);setFiles([]);if(fileInput.current)fileInput.current.value='';if(folderInput.current)folderInput.current.value='';await onImported();
  }catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>
   <h2>Import an OKF bundle</h2><p>Open Knowledge Format v0.2 · Markdown concepts with YAML metadata. Folder imports preserve concept paths, links, and referenced PNG/JPEG screenshots (5 MB each; 100 images / 50 MB per workspace).</p>
   <label htmlFor="okf-bundle">Bundle name</label><input id="okf-bundle" value={bundle} maxLength={80} required disabled={busy||disabled} onChange={event=>setBundle(event.target.value)}/>

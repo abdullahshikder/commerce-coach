@@ -15,7 +15,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  type?: 'text' | 'knowledge' | 'quiz' | 'training' | 'error';
+  type?: 'text' | 'knowledge' | 'quiz' | 'training' | 'automation' | 'error';
   metadata?: {
     domain?: string;
     feature?: string;

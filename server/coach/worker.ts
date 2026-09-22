@@ -3,6 +3,7 @@ import {pipelineReady} from '../production';
 import {authPool} from '../db';
 import {chunkDocument,documentProvider} from './documents';
 import {parseOKF} from './okf';
+let nextPreviewCleanup=0;
 export async function prepareDocument(content:string,path?:string,provider=documentProvider()){
  const parsed=path?parseOKF(path,content):undefined;
  // Index meaningful prose, not the full metadata/source record duplicated in OKF exports.
@@ -13,6 +14,7 @@ export async function prepareDocument(content:string,path?:string,provider=docum
 }
 export async function runDocumentJob(){
  if(!await pipelineReady())return false;
+ if(Date.now()>=nextPreviewCleanup){await authPool.query('SELECT public.coach_cleanup_embedding_previews()');nextPreviewCleanup=Date.now()+60000;}
  const token=randomUUID();const doc=(await authPool.query('SELECT * FROM public.coach_claim_document($1)',[token])).rows[0];
  if(!doc)return false;const started=Date.now();
  try{const result=await prepareDocument(doc.content,doc.concept_path);

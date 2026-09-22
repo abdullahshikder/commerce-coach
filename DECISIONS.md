@@ -61,3 +61,17 @@ The user approved the previously blocked synthetic/internal-documentation OpenRo
 **Over:** Inferring steps from video titles, importing raw transcripts, or showing an untraceable image without its relevant tutorial source.
 **Why:** Concise authored summaries are searchable and maintainable, while direct source links preserve provenance. A set-level screenshot mapping lets the chat, copied/downloaded PNG, and PDF all carry one deduplicated tutorial reference without duplicating URLs on every image record.
 **Model:** GPT-5 · 2026-09-13
+
+## 2026-09-16 — Derive privacy-safe training datasets from reviewed feedback
+
+**Chose:** Build versioned JSONL exports on demand from helpful ratings and reviewer-approved corrections, with server-side redaction, deduplication, provenance labels, and a deterministic validation holdout.
+**Over:** Exporting raw saved conversations, copying training rows into another database table, or uploading data directly to a model provider.
+**Why:** Reviewed feedback provides an intentional quality signal while derived exports avoid a second sensitive-data store. Tenant RLS and admin-only routes preserve workspace isolation, and a stable content version makes evaluation runs reproducible before any paid training occurs.
+**Model:** GPT-5 · 2026-09-16
+
+## 2026-09-16 — Stage exact embedding previews before retrieval
+
+**Chose:** Keep generated chunks and vectors in a private 30-minute database preview, show only chunk text and a short numeric sample, and promote the exact staged result only after explicit admin confirmation.
+**Over:** Saving vectors immediately, recomputing after a text-only preview, returning full vectors to the browser, or caching previews in one web-process memory.
+**Why:** The approval gate prevents unseen embeddings from entering retrieval, avoids paying for the same provider call twice, limits vector exposure, and works across multiple production replicas. Revision and content hashes prevent stale previews from replacing a changed draft.
+**Model:** GPT-5 · 2026-09-16

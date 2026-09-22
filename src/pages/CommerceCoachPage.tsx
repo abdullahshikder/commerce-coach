@@ -18,7 +18,8 @@ import {
   BookOpen, Sparkles, AlertTriangle, ChevronRight, ChevronLeft,
   MessageSquare, ShoppingCart, Store, Copy, Check, ImageIcon,
   Loader2, X, BrainCircuit, PanelLeft, Plus, Search, ArrowUpRight,
-  ArrowUp, PanelLeftClose, Warehouse, CircleHelp,
+  ArrowUp, PanelLeftClose, Warehouse, CircleHelp, Bot,
+  Pause, Play, CheckCircle2, MousePointer2,
 } from 'lucide-react';
 
 function uid(): string {
@@ -109,6 +110,7 @@ function WelcomeScreen({ onSend, composer, name }: { onSend: (text: string) => v
     <div className="home-heading"><p>Hello, {name.split(' ')[0]}.</p><h1>How can I help?</h1><span>Ask one question about Pathao Commerce.</span></div>
     {composer}
     <div className="home-prompt-list" aria-label="Suggested questions">
+      <button onClick={()=>onSend('Create a warehouse for me (demo)')}><Bot size={17}/><span>Try an automated warehouse setup</span><ArrowUpRight size={16}/></button>
       <button onClick={()=>onSend('ওয়্যারহাউস কীভাবে তৈরি করব?')}><Warehouse size={17}/><span>ওয়্যারহাউস কীভাবে তৈরি করব?</span><ArrowUpRight size={16}/></button>
       <button onClick={()=>onSend('Where is my Instant Checkout order? It is not in New Orders.')}><ShoppingCart size={17}/><span>Where did my Instant Checkout order go?</span><ArrowUpRight size={16}/></button>
       <button onClick={()=>onSend('How do I create an ad catalogue for Meta Ads?')}><Store size={17}/><span>Help me create a catalogue for Meta Ads</span><ArrowUpRight size={16}/></button>
@@ -120,6 +122,66 @@ function WelcomeScreen({ onSend, composer, name }: { onSend: (text: string) => v
   </div>;
 }
 
+const AUTOMATION_STEPS = [
+  'Opening Warehouse Management',
+  'Selecting Add Warehouse',
+  'Checking the required details',
+] as const;
+
+function AutomationDemoCard() {
+  const [step, setStep] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (paused || finished) return;
+    timer.current = window.setTimeout(() => {
+      if (step === AUTOMATION_STEPS.length - 1) setFinished(true);
+      else setStep(current => current + 1);
+    }, 850);
+    return () => window.clearTimeout(timer.current);
+  }, [step, paused, finished]);
+
+  const restart = () => {
+    setStep(0);
+    setPaused(false);
+    setFinished(false);
+  };
+
+  return (
+    <section className="automation-card" aria-label="Warehouse automation sample">
+      <div className="automation-heading">
+        <span className="automation-icon"><Bot size={16}/></span>
+        <div><strong>Automation running</strong><span>Warehouse setup</span></div>
+        {finished ? <span className="automation-status is-waiting">Needs your details</span> : <span className="automation-status">Working</span>}
+      </div>
+      <ol className="automation-steps" aria-live="polite">
+        {AUTOMATION_STEPS.map((label, index) => {
+          const complete = finished || index < step;
+          const current = !finished && index === step;
+          return <li key={label} className={complete ? 'is-complete' : current ? 'is-current' : ''}>
+            {complete ? <CheckCircle2 size={16}/> : current ? <span className="automation-cursor"><MousePointer2 size={16}/></span> : <span className="automation-marker"/>}
+            <span>{label}</span>
+          </li>;
+        })}
+      </ol>
+      {finished ? (
+        <div className="automation-input-needed">
+          <strong>I need two details to continue</strong>
+          <p>Send the warehouse name and pickup address. Coach will fill them, review the result, and ask before the final submission.</p>
+          <button type="button" onClick={restart}><Play size={14}/>Run again</button>
+        </div>
+      ) : (
+        <div className="automation-controls">
+          <button type="button" onClick={() => setPaused(value => !value)}>{paused ? <Play size={14}/> : <Pause size={14}/>} {paused ? 'Resume' : 'Pause'}</button>
+          <span>{paused ? 'Automation paused' : 'Coach is operating the workflow'}</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function MessageBubble(props: { message: ChatMessage; themeColor: string; query?: string; onImageClick?: (images: { src: string; caption: string }[], index: number) => void; key?: string }) {
   const { message, themeColor, query, onImageClick } = props;
   const isUser = message.role === 'user';
@@ -129,6 +191,21 @@ function MessageBubble(props: { message: ChatMessage; themeColor: string; query?
     return (
       <div className="flex justify-center px-6 py-2">
         <span className="text-[11px] text-gray-400 bg-gray-50 px-4 py-1.5 rounded-full border border-gray-100 font-medium">{message.content}</span>
+      </div>
+    );
+  }
+
+  if (message.type === 'automation') {
+    return (
+      <div className="coach-message coach-message-assistant flex gap-3 px-6 py-2 justify-start">
+        <div className="w-8 h-8 rounded-xl bg-[#e83330] flex items-center justify-center shrink-0 shadow-md">
+          <span className="coach-avatar-letter">C</span>
+        </div>
+        <div className="answer-card">
+          <p className="answer-label">Coach automation</p>
+          <p className="automation-intro">I’m starting this workflow for you. You can pause me at any point.</p>
+          <AutomationDemoCard />
+        </div>
       </div>
     );
   }
@@ -289,6 +366,19 @@ export default function CommerceCoachPage({ screenContext }: { screenContext?: S
       try {
         // Persist the question before generation so an interrupted response never loses the user's turn.
         if(!await history.save(nextMessages,base.state))return;
+        if (/^(create|add|setup|set up).*warehouse.*\(demo\)$/i.test(trimmed)) {
+          const automation: ChatMessage = {
+            id: uid(),
+            role: 'assistant',
+            content: 'Warehouse automation sample',
+            timestamp: new Date(),
+            type: 'automation',
+          };
+          const completed = [...nextMessages, automation];
+          setMessages(completed);
+          await history.save(completed, base.state);
+          return;
+        }
         let result;
         try{result=await processMessageLLM(trimmed,base.state,nextMessages,aiProvider,screenContext);}
         catch{result=generationError(base.state);}

@@ -1,5 +1,5 @@
 import {authPool} from './db';
-export async function pipelineReady(){return Boolean((await authPool.query("SELECT to_regprocedure('public.coach_claim_document(uuid)') IS NOT NULL AS ready")).rows[0].ready);}
+export async function pipelineReady(){return Boolean((await authPool.query("SELECT to_regprocedure('public.coach_claim_document(uuid)') IS NOT NULL AND to_regprocedure('public.coach_apply_embedding_preview(uuid,uuid,integer)') IS NOT NULL AS ready")).rows[0].ready);}
 export function productionConfiguration(env:NodeJS.ProcessEnv=process.env){
  const origins=(env.APP_ORIGINS??'').split(',').filter(Boolean);
  const google=[env.GOOGLE_CLIENT_ID,env.GOOGLE_CLIENT_SECRET,env.GOOGLE_REDIRECT_URI];

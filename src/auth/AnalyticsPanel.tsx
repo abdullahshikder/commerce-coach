@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Activity, BookOpenCheck, CircleAlert, Cpu, MessageSquareText, RefreshCw, ShieldCheck, ThumbsUp } from 'lucide-react';
-import { api } from './client';
+import { Activity, BookOpenCheck, CircleAlert, Cpu, Database, Download, MessageSquareText, RefreshCw, ShieldCheck, ThumbsUp } from 'lucide-react';
+import { api, authFetch } from './client';
 
 type RangeDays = 7 | 30 | 90;
 interface NamedCount { name: string; count: number; }
@@ -19,6 +19,19 @@ interface AnalyticsData {
   failureKinds: NamedCount[];
   issues: NamedCount[];
   tokenUsage: { totals: TokenTotals; previousTotals: TokenTotals; providers: TokenProviderUsage[]; };
+}
+type TrainingRange = '30' | '90' | '365' | 'all';
+interface TrainingDataSummary {
+  version: string;
+  examples: number;
+  sourceRows: number;
+  duplicateRows: number;
+  redactionCount: number;
+  approvedCorrections: number;
+  helpfulAnswers: number;
+  trainExamples: number;
+  validationExamples: number;
+  truncated: boolean;
 }
 
 const LABELS: Record<string, string> = {
@@ -52,6 +65,58 @@ function Breakdown({ title, items, empty }: { title: string; items: NamedCount[]
 
 function TokenUsageBreakdown({ items }: { items: TokenProviderUsage[] }) {
   return <section className="analytics-panel analytics-token-usage"><h2>Token usage by provider</h2>{items.length ? <div className="analytics-token-list">{items.map(item => <div key={item.name}><span>{label(item.name)}</span><strong>{formatTokens(item.totalTokens)}</strong><small>{formatTokens(item.inputTokens)} input · {formatTokens(item.outputTokens)} output</small></div>)}</div> : <p>Token totals will appear after the next provider response.</p>}</section>;
+}
+
+function TrainingDataExport() {
+  const [range, setRange] = useState<TrainingRange>('365');
+  const [summary, setSummary] = useState<TrainingDataSummary>();
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState('');
+  const load = async () => {
+    setLoading(true);
+    try {
+      setSummary(await api<TrainingDataSummary>(`/api/analytics/training-data?days=${range}`));
+      setError('');
+    } catch (caught) {
+      setError((caught as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(); }, [range]);
+  const download = async () => {
+    setDownloading(true);
+    setError('');
+    try {
+      const response = await authFetch(`/api/analytics/training-data/export?days=${range}`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || 'Could not export training data.');
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition') ?? '';
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? 'commerce-coach-training.jsonl';
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = filename;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (caught) {
+      setError((caught as Error).message);
+    } finally {
+      setDownloading(false);
+    }
+  };
+  return <section className="analytics-panel training-data-panel">
+    <div className="training-data-heading"><span className="analytics-metric-icon"><Database size={19}/></span><div><h2>Future training data</h2><p>Export only helpful ratings and reviewer-approved corrections. Private conversation history is never included.</p></div></div>
+    <div className="training-data-controls"><label>Eligible period<select value={range} onChange={event => setRange(event.target.value as TrainingRange)}><option value="30">30 days</option><option value="90">90 days</option><option value="365">1 year</option><option value="all">All reviewed data</option></select></label><button onClick={() => void download()} disabled={loading || downloading || !summary?.examples}><Download size={15}/>{downloading ? 'Preparing…' : 'Download JSONL'}</button></div>
+    {error && <p className="analytics-error" role="alert">{error}</p>}
+    {loading ? <p role="status">Checking eligible examples…</p> : summary && <><div className="training-data-stats"><div><strong>{summary.examples}</strong><span>safe examples</span></div><div><strong>{summary.approvedCorrections}</strong><span>approved corrections</span></div><div><strong>{summary.helpfulAnswers}</strong><span>helpful answers</span></div><div><strong>{summary.validationExamples}</strong><span>validation holdout</span></div></div><p className="training-data-version">Dataset {summary.version} · {summary.redactionCount} sensitive values removed · {summary.duplicateRows} duplicates skipped{summary.truncated ? ' · export capped at 5,000 source rows' : ''}</p></>}
+  </section>;
 }
 
 export function AnalyticsPanel() {
@@ -97,6 +162,7 @@ export function AnalyticsPanel() {
         <div className="analytics-bars" role="list" aria-label={`Daily queries, feedback, and failures over ${data.range.days} days`}>{data.trend.map((day, index) => <div key={day.date} className="analytics-bar-column" role="listitem" aria-label={`${day.date}: ${day.queries} queries, ${day.feedback} feedback, ${day.failures} failures`} title={`${day.date}: ${day.queries} queries · ${day.feedback} feedback · ${day.failures} failures`}><div className="analytics-bar-cluster" aria-hidden="true"><span className="analytics-bar is-query" style={{ height: `${Math.max(day.queries ? 7 : 2, day.queries / maxDaily * 100)}%` }}/><span className="analytics-bar is-feedback" style={{ height: `${Math.max(day.feedback ? 7 : 2, day.feedback / maxDaily * 100)}%` }}/><span className="analytics-bar is-failure" style={{ height: `${Math.max(day.failures ? 7 : 2, day.failures / maxDaily * 100)}%` }}/></div>{(index === 0 || index === data.trend.length - 1) && <small>{dateLabel(day.date)}</small>}</div>)}</div>
       </section>
       <section className="analytics-panel analytics-pulse"><div className="analytics-panel-heading"><div><h2>Operational pulse</h2><p>Current range compared with the immediately preceding {data.range.days} days.</p></div><small>{data.range.previousFrom} to {data.range.previousThrough}</small></div><div className="analytics-pulse-grid"><div><span>Active days</span><strong>{activeDays} <small>of {data.range.days}</small></strong></div><div><span>Average queries</span><strong>{averageQueries} <small>per day</small></strong></div><div><span>Busiest day</span><strong>{busiestDay?.queries ? busiestDay.queries : '-'} <small>{busiestDay?.queries ? `on ${dateLabel(busiestDay.date)}` : 'no activity'}</small></strong></div><div><span>Generation failures</span><strong>{data.totals.failures} <small>{comparison(data.totals.failures, data.previousTotals.failures)}</small></strong></div></div></section>
+      <TrainingDataExport/>
       <div className="analytics-grid"><TokenUsageBreakdown items={tokenUsage?.providers ?? []}/><Breakdown title="Popular topics" items={data.topics} empty="Topics will appear after Coach answers use retrieved knowledge."/><Breakdown title="Assistant modes" items={data.modes} empty="No mode usage in this range."/><Breakdown title="Providers" items={data.providers} empty="No provider usage in this range."/><Breakdown title="Reported issues" items={data.issues} empty="No unhelpful feedback in this range."/><Breakdown title="Failure reasons" items={data.failureKinds} empty="No answer failures in this range."/></div>
     </>}
   </div></div>;

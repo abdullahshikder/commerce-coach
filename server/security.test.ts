@@ -72,13 +72,14 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       const flags=(await pool.query("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='public.coach_feedback'::regclass")).rows[0];
       assert.deepEqual(flags,{relrowsecurity:true,relforcerowsecurity:true});
       await assert.rejects(pool.query('SELECT * FROM coach_private.users'),{code:'42501'});
+      await assert.rejects(pool.query('SELECT * FROM coach_private.embedding_previews'),{code:'42501'});
       await assert.rejects(pool.query("SELECT * FROM public.coach_login_lookup('alpha','admin@example.com')"),{code:'42501'});
       await assert.rejects(pool.query("SELECT public.coach_open_session($1,'hash','token','csrf')",[ids.admin]),{code:'42501'});
       await assert.rejects(pool.query('TRUNCATE public.coach_feedback'),{code:'42501'});
       await assert.rejects(pool.query('ALTER TABLE public.coach_feedback DISABLE ROW LEVEL SECURITY'),{code:'42501'});
     });
     await t.test('all application APIs require sign-in; forged headers and shared token do not authenticate',async()=>{
-      for(const [path,body] of [['/api/config',undefined],['/api/coach/retrieve',{query:'orders'}],['/api/coach/generate',{}],['/api/coach/feedback',{}],['/api/analytics',undefined],['/api/users',undefined]] as const){
+      for(const [path,body] of [['/api/config',undefined],['/api/coach/retrieve',{query:'orders'}],['/api/coach/generate',{}],['/api/coach/feedback',{}],['/api/analytics',undefined],['/api/analytics/training-data',undefined],['/api/users',undefined]] as const){
         assert.equal((await request(path,undefined,body,body === undefined ? 'GET' : 'POST',{'x-user-id':ids.admin,'x-user-role':'admin',Authorization:'Bearer local-browser-test-token'})).status,401);
       }
       assert.equal((await request('/api/auth/login',undefined,{email:'admin@example.com',password:'wrong'})).status,401);
@@ -97,7 +98,7 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       assert.equal((await request('/api/auth/logout',member,{},'POST',{'X-Coach-Request':''})).status,403);
     });
     await t.test('members submit only their own tenant feedback and cannot access reviewer/admin APIs',async()=>{
-      for(const path of ['/api/coach/feedback','/api/analytics','/api/users'])assert.equal((await request(path,member)).status,403);
+      for(const path of ['/api/coach/feedback','/api/analytics','/api/analytics/training-data','/api/users'])assert.equal((await request(path,member)).status,403);
       const input={responseId:'same-response',query:'Where are orders?',answer:'Wrong answer',rating:'unhelpful',issueType:'wrong-answer',organization_id:orgB,user_id:ids.beta,role:'admin'};
       const saved=await request('/api/coach/feedback',member,input);assert.equal(saved.status,201);feedbackId=(await saved.json()).feedback.id;
       assert.equal((await request('/api/coach/feedback',other,input)).status,201);
@@ -163,6 +164,26 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       assert.equal((await request('/api/users',reviewer)).status,403);
       const result=await request(`/api/coach/feedback/${feedbackId}`,reviewer,{status:'approved',reviewerId:ids.beta,suggestedAnswer:'Open Online Stores, then edit the store analytics account.'},'PATCH');assert.equal(result.status,200);const reviewed=(await result.json()).feedback;assert.equal(reviewed.reviewerId,ids.reviewer);assert.equal(reviewed.suggestedAnswer,'Open Online Stores, then edit the store analytics account.');
       const retrieval=await request('/api/coach/retrieve',reviewer,{query:'Open Online Stores analytics account'});assert.equal(retrieval.status,200);assert.ok((await retrieval.json()).results.some((entry:any)=>entry.document.id===`correction:${feedbackId}`));
+    });
+    await t.test('training exports are admin-only, tenant-scoped, redacted, and contain reviewed signals only',async()=>{
+      const helpful={responseId:'helpful-training',query:'Contact member@example.com about order ID: PC-9911',answer:'Call +8801712345678 and use token=supersecret',rating:'helpful'};
+      assert.equal((await request('/api/coach/feedback',member,helpful)).status,201);
+      assert.equal((await request('/api/coach/feedback',beta,{responseId:'beta-helpful',query:'Beta-only training prompt',answer:'Beta-only training answer',rating:'helpful'})).status,201);
+      assert.equal((await request('/api/analytics/training-data',member)).status,403);
+      assert.equal((await request('/api/analytics/training-data',reviewer)).status,403);
+      assert.equal((await request('/api/analytics/training-data?days=7',alphaAdmin)).status,400);
+      const summary=await (await request('/api/analytics/training-data?days=all',alphaAdmin)).json();
+      assert.equal(summary.examples,2);assert.equal(summary.approvedCorrections,1);assert.equal(summary.helpfulAnswers,1);
+      assert.equal(summary.trainExamples+summary.validationExamples,2);assert.match(summary.version,/^cc-training-v1-[a-f0-9]{16}$/);
+      const exported=await request('/api/analytics/training-data/export?days=all',alphaAdmin);
+      assert.equal(exported.status,200);assert.match(exported.headers.get('content-type')!,/application\/x-ndjson/);
+      assert.equal(exported.headers.get('x-coach-dataset-version'),summary.version);
+      const jsonl=await exported.text();const examples=jsonl.trim().split('\n').map(line=>JSON.parse(line));
+      assert.equal(examples.length,2);assert.deepEqual(new Set(examples.map(example=>example.metadata.source)),new Set(['approved_correction','helpful_rating']));
+      assert.doesNotMatch(jsonl,/member@example\.com|\+8801712345678|PC-9911|supersecret|Beta-only/);
+      assert.match(jsonl,/REDACTED_EMAIL/);assert.match(jsonl,/REDACTED_PHONE/);assert.match(jsonl,/REDACTED_ID/);
+      const isolated=await (await request('/api/analytics/training-data?days=all',beta)).json();assert.equal(isolated.examples,1);
+      const betaExport=await (await request('/api/analytics/training-data/export?days=all',beta)).text();assert.match(betaExport,/Beta-only training prompt/);assert.doesNotMatch(betaExport,/member@example\.com|Open Online Stores/);
     });
     await t.test('admin account management stays in the organization and prevents removal of the last admin',async()=>{
       assert.equal((await request(`/api/users/${ids.beta}`,alphaAdmin,{role:'member',active:false},'PATCH')).status,404);
@@ -272,10 +293,18 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       assert.equal((await request(`/api/library/document?id=upload:${id}`,memberLogin)).status,404);
       assert.equal((await request(`/api/library/document?id=upload:${id}`,beta)).status,404);
       await assert.rejects(withSession(digest(alphaAdmin.token),c=>c.query("UPDATE public.coach_documents SET publication='published' WHERE id=$1",[id])),{code:'42501'});
-      const token=randomUUID();const job=(await authPool.query('SELECT * FROM public.coach_claim_document($1)',[token])).rows[0];assert.equal(job.id,id);
-      const result=await prepareDocument(job.content,job.concept_path,undefined);
-      assert.equal((await authPool.query('SELECT public.coach_finish_document($1,$2,$3,NULL,NULL) AS saved',[id,randomUUID(),JSON.stringify(result.chunks)])).rows[0].saved,false);
-      assert.equal((await authPool.query('SELECT public.coach_finish_document($1,$2,$3,NULL,NULL) AS saved',[id,token,JSON.stringify(result.chunks)])).rows[0].saved,true);
+      assert.equal((await admin.query('SELECT status FROM public.coach_documents WHERE id=$1',[id])).rows[0].status,'unprocessed');
+      await assert.rejects(withSession(digest(alphaAdmin.token),c=>c.query('SELECT public.coach_save_embedding_preview($1,$2,1,$3,$4,NULL)',[randomUUID(),id,JSON.stringify([{text:'invalid',vector:[0.1]}]),'model-without-dimensions'])),{code:'22023'});
+      assert.equal((await request(`/api/documents/${id}/embedding-preview`,memberLogin,{revision:1})).status,403);
+      assert.equal((await request(`/api/documents/${id}/embedding-preview`,reviewer,{revision:1})).status,403);
+      assert.equal((await request(`/api/documents/${id}/embedding-preview`,beta,{revision:1})).status,404);
+      assert.equal((await request(`/api/documents/${id}/process`,alphaAdmin,{})).status,409);
+      const previewResponse=await request(`/api/documents/${id}/embedding-preview`,alphaAdmin,{revision:1});assert.equal(previewResponse.status,201);
+      const preview=await previewResponse.json();assert.equal(preview.mode,'keyword');assert.equal(preview.model,null);assert.equal(preview.chunks.length,1);assert.match(preview.chunks[0].text,/Policy verification phrase/);assert.ok(!('vectorSample' in preview.chunks[0]));
+      const untouched=(await admin.query('SELECT status,jsonb_array_length(chunks) AS chunks FROM public.coach_documents WHERE id=$1',[id])).rows[0];assert.deepEqual(untouched,{status:'unprocessed',chunks:0});
+      assert.equal((await request(`/api/documents/${id}/embedding-preview/${preview.id}/apply`,beta,{revision:1})).status,409);
+      assert.equal((await request(`/api/documents/${id}/embedding-preview/${preview.id}/apply`,alphaAdmin,{revision:1})).status,200);
+      const ready=(await admin.query('SELECT status,jsonb_array_length(chunks) AS chunks FROM public.coach_documents WHERE id=$1',[id])).rows[0];assert.deepEqual(ready,{status:'ready',chunks:1});
       const image='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
       const attached=await request(`/api/documents/${id}/attachments`,alphaAdmin,{path:'assets/step.png',base64:image});assert.equal(attached.status,201);const attachment=(await attached.json()).id;
       assert.equal((await request(`/api/library/attachments/${attachment}`,memberLogin)).status,404);
@@ -292,8 +321,16 @@ test('authentication, organization RBAC, and native PostgreSQL RLS', async t => 
       assert.equal((await request(`/api/library/document?id=upload:${id}`,memberLogin)).status,404);
       assert.equal((await request(`/api/library/attachments/${attachment}`,memberLogin)).status,404);
       assert.equal((await request(`/api/documents/${id}/action`,alphaAdmin,{action:'submit',revision:1})).status,409);
+      const stalePreview=await (await request(`/api/documents/${id}/embedding-preview`,alphaAdmin,{revision:2})).json();
       assert.equal((await request(`/api/documents/${id}/action`,alphaAdmin,{action:'restore',revision:2,restoreRevision:1})).status,200);
       const restored=await (await request(`/api/documents/${id}/source`,alphaAdmin)).json();assert.equal(restored.content,source);assert.equal(restored.revision,3);
+      await admin.query("UPDATE coach_private.embedding_previews SET expires_at=now()-interval '1 second' WHERE id=$1",[stalePreview.id]);
+      assert.equal((await authPool.query('SELECT public.coach_cleanup_embedding_previews() AS removed')).rows[0].removed,1);
+      assert.equal((await request(`/api/documents/${id}/embedding-preview/${stalePreview.id}/apply`,alphaAdmin,{revision:2})).status,409);
+      const currentPreview=await (await request(`/api/documents/${id}/embedding-preview`,alphaAdmin,{revision:3})).json();
+      assert.equal((await request(`/api/documents/${id}/embedding-preview/${currentPreview.id}/apply`,alphaAdmin,{revision:3})).status,200);
+      await withSession(digest(alphaAdmin.token),c=>c.query("SELECT public.coach_document_action($1,$2,'queue')",[id,3]));
+      const result=await prepareDocument(source,'policy.md',undefined);
       const retryToken=randomUUID();await authPool.query('SELECT * FROM public.coach_claim_document($1)',[retryToken]);
       await admin.query("UPDATE public.coach_documents SET lease_until=now()-interval '1 second' WHERE id=$1",[id]);
       const recoveredToken=randomUUID();const recovered=(await authPool.query('SELECT * FROM public.coach_claim_document($1)',[recoveredToken])).rows[0];assert.equal(recovered.id,id);assert.equal(recovered.attempts,2);

@@ -9,9 +9,10 @@ import { asyncRoute, requireRole } from '../auth/middleware';
 import { digest } from '../auth/password';
 import { takeBudget } from '../security';
 import { chunkDocument, documentProvider } from '../coach/documents';
+import { prepareDocument } from '../coach/worker';
 export const documentRoutes=Router();
 documentRoutes.use(requireRole('admin','reviewer'));
-documentRoutes.use((_req,res,next)=>{void pipelineReady().then(ready=>{if(!ready){res.status(503).json({error:'Knowledge upgrades are prepared. Apply migration 007 to enable processing and review.'});return;}next();}).catch(next);});
+documentRoutes.use((_req,res,next)=>{void pipelineReady().then(ready=>{if(!ready){res.status(503).json({error:'Knowledge upgrades are prepared. Apply the latest database migration to enable embedding previews.'});return;}next();}).catch(next);});
 documentRoutes.use((req,res,next)=>{if(req.method!=='GET'&&!req.path.endsWith('/action')&&req.actor!.role!=='admin'){res.status(403).json({error:'Administrator access required.'});return;}next();});
 documentRoutes.get('/',asyncRoute(async(req,res)=>{
  const items=await withSession(req.sessionHash!,async c=>(await c.query('SELECT id,name,status,model,error,publication,revision,attempts,okf_metadata,concept_path,bundle_name,jsonb_array_length(chunks) AS chunk_count,created_at,lease_until FROM public.coach_documents ORDER BY created_at DESC')).rows);
@@ -36,12 +37,38 @@ documentRoutes.post('/', asyncRoute(async(req,res)=>{
 }));
 documentRoutes.param('id',(req,res,next)=>{if(!/^[0-9a-f-]{36}$/i.test(req.params.id)){res.status(400).json({error:'Invalid document ID.'});return;}next();});
 documentRoutes.post('/:id/process',asyncRoute(async(req,res)=>{
- if(!await takeBudget(`document-process:${req.actor!.organization_id}`,60,60)){res.status(429).json({error:'Too many processing requests.'});return;}
- const result=await withSession(req.sessionHash!,async c=>{
-  const doc=(await c.query('SELECT revision FROM public.coach_documents WHERE id=$1',[req.params.id])).rows[0];
-  if(!doc)return false;
-  await c.query("SELECT public.coach_document_action($1,$2,'queue')",[req.params.id,doc.revision]);return true;
- });res.status(result?202:404).json(result?{ok:true,queued:true}:{error:'Document not found.'});
+ res.status(409).json({error:'Generate and review an embedding preview before saving.'});
+}));
+documentRoutes.post('/:id/embedding-preview',asyncRoute(async(req,res)=>{
+ if(!await takeBudget(`embedding-preview:${req.actor!.organization_id}`,10,600)){res.status(429).json({error:'Too many embedding previews. Try again later.'});return;}
+ const revision=req.body?.revision;
+ if(!Number.isSafeInteger(revision)||revision<1){res.status(400).json({error:'A valid document revision is required.'});return;}
+ const document=await withSession(req.sessionHash!,async c=>(await c.query('SELECT content,concept_path,revision,publication FROM public.coach_documents WHERE id=$1',[req.params.id])).rows[0]);
+ if(!document){res.status(404).json({error:'Document not found.'});return;}
+ if(document.revision!==revision||document.publication!=='draft'){res.status(409).json({error:'Refresh the draft before generating a preview.'});return;}
+ const result=await prepareDocument(document.content,document.concept_path);
+ const previewId=randomUUID();
+ const saved=await withSession(req.sessionHash!,async c=>(await c.query(
+  'SELECT public.coach_save_embedding_preview($1,$2,$3,$4,$5,$6) AS expires_at',
+  [previewId,req.params.id,revision,JSON.stringify(result.chunks),result.model,result.dimensions],
+ )).rows[0]);
+ // Full vectors remain in private staging; the browser only receives enough coordinates to inspect their shape.
+ res.status(201).json({
+  id:previewId,expiresAt:saved.expires_at,model:result.model,dimensions:result.dimensions,
+  mode:result.model?'semantic':'keyword',
+  chunks:result.chunks.map((chunk,index)=>({index:index+1,text:chunk.text,characters:chunk.text.length,
+   ...(chunk.vector?{vectorSample:chunk.vector.slice(0,8).map(value=>Number(value.toFixed(6))),magnitude:Number(Math.sqrt(chunk.vector.reduce((sum,value)=>sum+value*value,0)).toFixed(6))}:{}),
+  })),
+ });
+}));
+documentRoutes.post('/:id/embedding-preview/:previewId/apply',asyncRoute(async(req,res)=>{
+ const revision=req.body?.revision;
+ if(!/^[0-9a-f-]{36}$/i.test(req.params.previewId)||!Number.isSafeInteger(revision)||revision<1){res.status(400).json({error:'A valid embedding preview and revision are required.'});return;}
+ const applied=await withSession(req.sessionHash!,async c=>(await c.query(
+  'SELECT public.coach_apply_embedding_preview($1,$2,$3) AS applied',[req.params.previewId,req.params.id,revision],
+ )).rows[0]?.applied as boolean);
+ if(!applied){res.status(409).json({error:'This preview expired or the draft changed. Generate a new preview.'});return;}
+ res.json({ok:true,status:'ready'});
 }));
 documentRoutes.post('/:id/action',asyncRoute(async(req,res)=>{
  const {action,revision,content,restoreRevision}=req.body??{};

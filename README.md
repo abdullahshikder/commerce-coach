@@ -171,11 +171,17 @@ Apply migrations before starting this version. Documentation assets now require 
 
 ## Admin document processor
 
-Admins can upload and process reference files from **Knowledge**. UTF-8 text, Markdown, CSV and JSON are supported, up to 64 KB per file and 50 documents per organization. Keyword search works immediately; configure an embedding key for semantic search. See KNOWLEDGE_UPLOADS.md for setup, processing behavior and limits.
+Admins can upload reference files from **Knowledge**. UTF-8 text, Markdown, CSV and JSON are supported, up to 64 KB per file and 50 documents per organization. New drafts remain unprocessed until an admin generates an embedding preview, inspects the exact chunks and vector sample, and selects **Save embeddings**. Preview records expire after 30 minutes and never enter retrieval before confirmation. Without an embedding key, the same review gate previews keyword sections. See KNOWLEDGE_UPLOADS.md for setup, processing behavior and limits.
 
 ## Admin analytics
 
 Admins can open **Analytics** to view 7, 30, or 90-day query volume, popular knowledge topics, provider and mode usage, feedback quality, pending reviews, and answer-failure reasons. The dashboard is tenant-scoped and built from anonymous facts in `coach_private`; it does not contain or expose question text, answers, or user identities. Members and reviewers cannot access the analytics API.
+
+### Future training-data exports
+
+The Analytics page also provides an admin-only JSONL export for future evaluation or fine-tuning. It includes only answers that a user explicitly rated helpful and corrections explicitly approved by a reviewer. Raw saved conversations, comments, review notes, account details, and dismissed or pending feedback are excluded. Email addresses, Bangladesh phone numbers, labeled transaction IDs, credentials, access tokens, and secret URL parameters are redacted on the server before download.
+
+Each example uses chat `messages` plus metadata for its quality tier, language, provenance, schema version, and deterministic train/validation split. Duplicate question-answer pairs are removed, the dataset gets a content-derived version, and exports are capped at 5,000 source rows. Treat the JSONL as sensitive internal data even after redaction: review the validation holdout manually, store exports in an access-controlled location, and never commit them to this repository. Exporting prepares data; it does not train or upload a model automatically.
 
 ### Open Knowledge Format
 
